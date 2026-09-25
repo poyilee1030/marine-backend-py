@@ -84,10 +84,15 @@ show what normal variation looks like. Revisit after step 3 adds 3 more runs.
    the Python 3.10 path, which fails on `import yaml`. *Now:* `--disable-plugin-autoload`
    in `pyproject.toml`, and `unset PYTHONPATH` in `scripts/dev.sh`.
 4. **`setsid cmd &` then `$!` is not the group leader.**
-   *We expected:* `$!` names the new process group. *Actually:* in a non-interactive shell
-   the backgrounded `setsid` is itself a group leader, so it forks and exits; `$!` is dead
-   and `kill -- -$PGID` gets an empty PGID. *Now:* `scripts/smoke_health.sh` has the inner
-   `bash` write its own pid (= the group id) to a file before `exec`.
+   *We expected:* `$!` names the new process group. *Actually:* when the calling shell has
+   job control on (`set -m`; the shell this was first run from had it, `$-` = `hmtBc`),
+   each background job gets its own process group, so `setsid` is already a group leader,
+   forks, and exits; `$!` is dead and `kill -- -$PGID` gets an empty PGID. Without job
+   control (`set +m`, the default in a script) `$!` works. Measured both ways, 2026-09-25.
+   (The first version of this entry blamed "non-interactive shells", which is backwards;
+   corrected before merge after `cold-read` flagged it.) *Now:* `scripts/smoke_health.sh`
+   has the inner `bash` write its own pid (= the group id) to a file before `exec`, which
+   holds either way.
 5. **`pgrep -f <pattern>` matches the shell that typed it.**
    *We expected:* a leftover check on `uvicorn marine_backend` finds only uvicorn.
    *Actually:* it also matched the caller's own `bash -c "…"` command line, which
@@ -114,3 +119,22 @@ removing that behaviour from a copy of the script, one at a time
 | swapped s/ms detection | `test_records_version_fields_and_time_units` |
 | the `MEDIAN` line | `test_three_runs_report_timings_and_medians` |
 | "unreachable" in the connection error | `test_unreachable_drone_fails_fast` |
+
+---
+
+## Step 1 — rerun from a fresh clone (2026-09-25 20:12)
+
+While writing `docs/step01.html`, every reader command in it was run as printed, from
+a fresh `git clone` of GitHub + `git switch step-1-skeleton`. Same drone-1 SITL session.
+
+| Run | takeoff_s | land_s | takeoff POST latency | start mode |
+|---|---|---|---|---|
+| 1 | 5.80 | 24.01 | 0.03 s | QLAND (20) → set GUIDED |
+| 2 | 5.81 | 24.01 | 0.03 s | QLAND (20) → set GUIDED |
+| 3 | 5.80 | 24.01 | 0.03 s | QLAND (20) → set GUIDED |
+| **Median** | **5.80** | **24.01** | | |
+
+Both medians are inside the step-1 windows (takeoff 0.28–10.28 s, land 16.08–29.86 s).
+Against the first session: takeoff +0.52 s, land +1.04 s. That session-to-session
+shift is larger than the within-session spread (≈0.5 s), which is one more reason not
+to tighten rule 7 from a single session.

@@ -125,6 +125,11 @@ drone-N coordinator :7070  →  ArduPlane SITL
    - 驗收證據貼在 PR 描述：指令輸出、數字、時間戳。
    - 在 `docs/baseline.md` 最後面追加本 step 的一段。
    - ROADMAP 裡本 step 打勾。
+   - **本 step 的教學章 `docs/stepNN.html`**（寫 code 的同一個 session、同一個 PR；
+     `incremental-html-textbook` skill），並在 `docs/index.html` 加卡片、前一章補上 next 連結。
+     `python3 scripts/check_book.py docs` 全過（死鏈、導覽鏈、SVG 契約、程式碼節錄逐字一致、
+     測試條數用 pytest 實數），開 PR 前對**這一頁**跑 `cold-read`，回報逐條回核後才改。
+   - 動到教材有引用的檔案時，同步那幾章的節錄與數字（`check_book.py` 的節錄檢查會紅）。
 3. **合併前 self-review，發現項分流。** 本 step 範圍內的當場修並重驗：腳本缺陷、
    metadata 不一致、靜默失敗路徑。行為層級的改動排成後續 step——基線 PR 與行為修改 PR
    不混在一起。
@@ -205,6 +210,8 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
       step-3 起後端時沿用同一套收尾）
 - [x] `tests/test_baseline_script.py` + `tests/fake_drone.py`：基線腳本的結束碼契約，
       對假 drone 跑，不碰 SITL（step-1 新增，工作流程規則 8、10）
+- [x] `docs/step01.html` + `docs/index.html`：本 step 的教學章與全書目錄；
+      `scripts/check_book.py`（step-1 新增，之後每章都要過）
 - [x] `.gitignore`（`.venv/`、`__pycache__/`、`.pytest_cache/`）、`LICENSE`，
       以及與之一致的 `pyproject.toml` license 欄位
 

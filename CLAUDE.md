@@ -49,4 +49,10 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 - Append-only `docs/baseline.md`: each step adds a section; old numbers never change.
 - PRs: `gh` is not installed; open them through the GitHub REST API with the token
   already in the `origin` remote URL. Never print or commit that token.
+- Every step also ships its teaching chapter `docs/stepNN.html` (skill
+  `incremental-html-textbook`), a card in `docs/index.html`, and the previous chapter's
+  next links. Gate: `python3 scripts/check_book.py docs` exits 0, then `cold-read` on
+  that one page, every finding re-verified by running things before editing.
+- A PR that changes a file the chapters quote must update those chapters too;
+  `check_book.py` fails when a quoted line no longer exists in the file.
 - Code review happens after the PR is open, in a clean session (`/code-review`).

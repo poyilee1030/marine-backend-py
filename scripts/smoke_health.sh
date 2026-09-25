@@ -39,7 +39,9 @@ if ss -ltn | grep -q ":$PORT "; then
 fi
 
 # The inner bash records its own pid before exec'ing, and that pid is the session and
-# group leader. ($! is useless: setsid forks and exits when it is itself a group leader.)
+# group leader. ($! is not reliable: when the calling shell has job control on (set -m),
+# a background job gets its own process group, so setsid is already a group leader and
+# forks and exits -- $! then names a dead process.)
 setsid bash -c 'echo $$ >"$1"; exec scripts/dev.sh' _ "$LOG.pid" >"$LOG" 2>&1 </dev/null &
 timeout 5 bash -c "until [[ -s '$LOG.pid' ]]; do sleep 0.05; done"
 PGID=$(cat "$LOG.pid")

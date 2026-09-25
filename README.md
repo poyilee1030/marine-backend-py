@@ -10,6 +10,8 @@ browser (marine-frontend) ──► marine-backend-py :8100 ──► drone-N co
 
 The plan, decisions and workflow rules are in [ROADMAP.md](ROADMAP.md); measured numbers
 and pitfalls are in [docs/baseline.md](docs/baseline.md).
+A teaching chapter per step, written alongside the code, starts at
+[docs/index.html](docs/index.html) (open it in a browser; each page is self-contained).
 
 ## Quick start
 
