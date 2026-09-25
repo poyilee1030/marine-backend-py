@@ -30,6 +30,7 @@ class FakeDrone:
         takeoff_detail="",
         climb_rate=40.0,
         land_s=0.3,
+        takeoff_delay=0.0,
     ):
         self.flight_mode = flight_mode
         self.is_armed = is_armed
@@ -38,6 +39,9 @@ class FakeDrone:
         self.takeoff_detail = takeoff_detail
         self.climb_rate = climb_rate
         self.land_s = land_s
+        # Seconds the takeoff request takes before the aircraft arms and the 200 goes out,
+        # like a flight controller slow to acknowledge GUIDED + ARM + NAV_TAKEOFF.
+        self.takeoff_delay = takeoff_delay
 
         self.requests: list[tuple[str, str, object]] = []  # (method, path, json body)
         self.tasks: dict[str, dict] = {}
@@ -103,9 +107,11 @@ class FakeDrone:
         if method == "POST" and path == "/api/takeoff":
             if self.takeoff_status != 200:
                 return self.takeoff_status, {"detail": self.takeoff_detail}
+            time.sleep(self.takeoff_delay)
             with self._lock:
                 self.flight_mode = GUIDED
                 self.is_armed = True
+                self._land_at = None  # this takeoff lands after any land that came first
                 self._takeoff_at = time.time()
                 self._takeoff_alt = float(body.get("altitude", 10.0))
                 task_id = self._new_task("TAKE_OFF")

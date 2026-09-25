@@ -8,10 +8,14 @@ PORT=${PORT:-8100}
 LOG=$(mktemp)
 PGID=""
 
-# Match on the process name (-x), then filter its arguments. `pgrep -f <pattern>` matches
-# any command line containing the pattern -- including the shell that typed it.
+# What is left is judged by two facts, not by what command lines look like: any process
+# still in the backend's process group, and anything still listening on the port.
+# (Matching command lines missed uvicorn --reload's server child, which is the process
+# holding the port: `python -c "from multiprocessing.spawn import spawn_main…"`. And a
+# bare `pgrep -f <pattern>` also matches the shell that typed it.)
 leftovers() {
-  { pgrep -ax uvicorn; pgrep -ax uv; } | grep -F "marine_backend.main:app --port $PORT" || true
+  if [[ -n ${PGID:-} ]]; then pgrep -a -g "$PGID" || true; fi
+  ss -ltnp "sport = :$PORT" 2>/dev/null | tail -n +2
 }
 
 cleanup() {

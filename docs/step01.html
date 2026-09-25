@@ -93,6 +93,7 @@ ol.notes li::before { content: counter(n); position: absolute; left: 0; top: 4px
   line-height: 18px; text-align: center; border-radius: 50%; background: var(--accent); color: var(--bg);
   font: 700 11px system-ui, sans-serif; }
 pre.diagram { background: var(--panel); }
+.dimnote { font-size: .85rem; color: var(--muted); margin-top: -4px; }
 
 /* tables */
 table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .93rem; }
@@ -207,7 +208,7 @@ details[open] summary { margin-bottom: 6px; }
   <tr><td>起飛前要先按 arm，或先手動切到 GUIDED</td>
       <td>不用。<code>POST /api/takeoff</code> 自己會切 GUIDED 並 arm；腳本在 <code>is_ready_to_arm</code> 不是 true 時也會自己先切 GUIDED（<code>preflight()</code>）。</td></tr>
   <tr><td>跑完要自己把 drone 降下來、把程式收掉</td>
-      <td>不用。每一輪都自己降落；中途失敗時 <code>trap cleanup EXIT</code> 會在飛機還 armed 時送 land。腳本本身不開背景程序。</td></tr>
+      <td>不用。每一輪都自己降落；中途失敗時 <code>trap cleanup EXIT</code> 會再盯 <code>ABORT_WATCH_S</code> 秒（預設 15），飛機只要在 QLAND 以外的模式 armed 就送 land。腳本本身不開背景程序。</td></tr>
 </table>
 
 <h2 id="journey">全景：一次基線 run 的完整旅程</h2>
@@ -361,7 +362,9 @@ DRONE=${1:?usage: $0 &lt;drone_url&gt;}
 DRONE=${DRONE%/}
 RUNS=${RUNS:-3}
 ALTITUDE=${ALTITUDE:-10}
-<span class="hl">ALT_REACHED=${ALT_REACHED:-9.5}</span>
+# "Reached" = within 0.5 m of the target: 9.5 for the default 10 m (ROADMAP step 1), the
+# same tolerance as marlin-drone's drone/scratch/take_off_land.py. Follows ALTITUDE.
+<span class="hl">ALT_REACHED=${ALT_REACHED:-$(awk "BEGIN { print $ALTITUDE - 0.5 }")}</span>
 POLL_S=${POLL_S:-0.5}
 READY_TIMEOUT_S=${READY_TIMEOUT_S:-10}
 TAKEOFF_TIMEOUT_S=${TAKEOFF_TIMEOUT_S:-120}  # the drone's own DroneParams.TAKEOFF_TIMEOUT
@@ -369,7 +372,9 @@ LAND_TIMEOUT_S=${LAND_TIMEOUT_S:-180}</code></pre>
 <p>
   <code>set -euo pipefail</code> 讓腳本在任何指令失敗、用到未定義變數、或管線中任一段失敗時立刻結束。
   <code>${X:-預設}</code> 是「環境變數 X 沒設就用預設」，所以每個參數都能從外面覆寫，測試就是靠這個把逾時縮短。
-  停錶門檻 <code>ALT_REACHED=9.5</code> 來自 ROADMAP 的驗收標準（<code>alt_rel ≥ 9.5</code>，比目標 10 m 低 0.5 m）；
+  停錶門檻 <code>ALT_REACHED</code> 預設是「目標高度減 0.5 m」：預設 10 m 時就是 ROADMAP 驗收標準的 <code>alt_rel ≥ 9.5</code>，
+  0.5 m 的容差和 marlin-drone 自己的 <code>take_off_land.py</code> 一樣。（第一版寫死 9.5、不跟著 <code>ALTITUDE</code> 走，
+  <code>ALTITUDE=5</code> 會永遠等不到而逾時；PR 開出後的 code review 抓到的。）
   <code>alt_rel</code> 是離 home（起飛點）的高度，單位公尺。
 </p>
 
@@ -517,15 +522,21 @@ req() {
 
 <h3 id="abort">中途失敗也要把飛機降下來</h3>
 <pre class="code" data-src="scripts/baseline_drone_direct.sh"><code>cleanup() {
-  local rc=$?
+  local rc=$? t0 s
   trap - EXIT
   if ((COMMANDED)); then
-    # An abort between takeoff and touchdown must not leave the aircraft flying.
-<span class="hl">    if curl -sS -m 5 "$DRONE/get_drone_state" 2&gt;/dev/null | jq -e '.is_armed == true' &gt;/dev/null 2&gt;&amp;1; then</span>
-      log "aborting with the aircraft armed: sending POST /api/land"
-      curl -sS -m 30 -X POST -H 'content-type: application/json' -d '{}' "$DRONE/api/land" &gt;&amp;2 || true
-      echo &gt;&amp;2
-    fi
+    # An abort between takeoff and touchdown must not leave the aircraft flying. "Not
+    # armed right now" proves nothing: a takeoff POST that timed out or was interrupted
+    # may still be arming on the drone. So watch for ABORT_WATCH_S and land whenever the
+    # aircraft is armed outside QLAND (20) -- already landing needs no second command.
+    t0=$(now)
+<span class="hl">    while is_true "$(now) - $t0 &lt; $ABORT_WATCH_S"; do</span>
+      if s=$(curl -sS -m 5 "$DRONE/get_drone_state" 2&gt;/dev/null) &amp;&amp;
+<span class="hl">        jq -e '.is_armed == true and .flight_mode != 20' &gt;/dev/null 2&gt;&amp;1 &lt;&lt;&lt;"$s"; then</span>
+        abort_land "aborting with the aircraft armed outside QLAND"
+      fi
+      sleep "$POLL_S"
+    done
   fi
   rm -rf "$TMP"
   exit "$rc"
@@ -534,7 +545,14 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM</code></pre>
 <p>
   <code>die</code> 就是 <code>exit 1</code>，所以任何失敗（逾時、連不上、被拒絕）都會走到這個 EXIT trap。
-  它不看腳本「以為」飛機在哪個狀態，而是<b>再問一次 drone</b>：只要還 armed 就送 land。
+  它不看腳本「以為」飛機在哪個狀態，而是<b>持續問 drone</b>：在 <code>ABORT_WATCH_S</code> 秒內，只要看到飛機在 QLAND 以外的模式 armed，就送 land
+  （<code>abort_land</code> 就是一個 <code>POST /api/land</code>）。已經在 QLAND 的飛機本來就在降落，不必再送。
+</p>
+<p>
+  為什麼要「持續」而不是看一次？第一版只看一次：<b>原本以為</b>「現在沒 armed」就代表不必降落。
+  但 takeoff 請求可能在腳本放棄時（逾時或 Ctrl-C）還在 drone 那端處理，飛機一秒後才 arm、然後自己爬升到 10 m——
+  <b class="hl-bad">腳本已經退出，沒有人在看</b>。這是 PR 開出後 code review 抓到的；修正前先寫了一條會重現它的測試
+  （假 drone 的 takeoff 拖 2 秒才 arm，腳本 1 秒就放棄）。
   <code>Ctrl-C</code>（<code>INT</code>）和 <code>kill</code> 預設送的 <code>TERM</code> 也一樣，被轉成 <code>exit 130</code>（慣例是 128＋訊號編號，INT 是 2），照樣觸發 EXIT trap。
   <code>trap - EXIT</code> 是先把自己拆掉，免得 cleanup 最後的 <code>exit</code> 又觸發一次 cleanup；
   <code>jq -e</code> 讓 jq 的結束碼跟著運算結果走（true 為 0），<code>if</code> 就能直接拿它判斷。
@@ -586,35 +604,45 @@ def run(url: str, **env) -&gt; subprocess.CompletedProcess:
   環境變數 <code>BASELINE_SCRIPT</code> 有設的話，就改測那一份。
 </p>
 <p>
-  <span data-tests="tests/test_baseline_script.py" data-count="8">這個檔案共有 8 條測試</span>，
-  <span data-tests="tests" data-count="9">整個 repo 共 9 條</span>。
-  8 條腳本測試第一次跑時全部紅在 exit 127（bash 找不到要執行的檔案，因為腳本還不存在）。但「因為檔案不存在而紅」只證明它們會紅，
+  <span data-tests="tests/test_baseline_script.py" data-count="10">這個檔案共有 10 條測試</span>，
+  <span data-tests="tests" data-count="12">整個 repo 共 12 條</span>（另外兩條是 <code>/health</code> 和下面 smoke 那一節的殘留檢查）。
+  最初的 8 條腳本測試第一次跑時全部紅在 exit 127（bash 找不到要執行的檔案，因為腳本還不存在）。但「因為檔案不存在而紅」只證明它們會紅，
   不證明<b>每一條各自守得住一個行為</b>。所以又做了一輪 mutation：複製一份腳本、每次只拿掉一個行為，用 <code>BASELINE_SCRIPT</code> 讓測試去跑副本，看該紅的測試有沒有紅。
 </p>
 <table>
   <tr><th>從腳本副本拿掉的行為</th><th>變紅的測試</th></tr>
-  <tr><td>不 ready 時先切 GUIDED</td><td>8 條中的 6 條，包括送出 body 的那條</td></tr>
+  <tr><td>不 ready 時先切 GUIDED</td><td>10 條中的 7 條，包括送出 body 的那條</td></tr>
   <tr><td>拒絕碰已 armed 的飛機</td><td><code>test_armed_aircraft_is_not_touched</code></td></tr>
   <tr><td>切完 GUIDED 仍不 ready 就失敗</td><td><code>test_not_ready_to_arm_fails_loudly_without_takeoff</code></td></tr>
   <tr><td>拒絕訊息裡帶 drone 的 <code>detail</code></td><td><code>test_refused_takeoff_prints_the_drones_detail</code></td></tr>
-  <tr><td>中途失敗時把 armed 的飛機降下來</td><td><code>test_takeoff_timeout_lands_the_aircraft_before_exiting</code></td></tr>
+  <tr><td>中途失敗時把 armed 的飛機降下來</td><td><code>test_takeoff_timeout_lands_the_aircraft_before_exiting</code>、<code>test_abort_while_takeoff_is_still_arming_still_lands</code></td></tr>
+  <tr><td>中途失敗後持續盯著（改成只看一次）</td><td><code>test_abort_while_takeoff_is_still_arming_still_lands</code></td></tr>
+  <tr><td>門檻跟著 <code>ALTITUDE</code>（改回寫死 9.5）</td><td><code>test_lower_altitude_uses_a_matching_threshold</code></td></tr>
   <tr><td>takeoff body 多一個欄位</td><td><code>test_sends_exactly_the_bodies_the_drone_accepts</code></td></tr>
   <tr><td>秒／毫秒判斷對調</td><td><code>test_records_version_fields_and_time_units</code></td></tr>
   <tr><td><code>MEDIAN</code> 那一行</td><td><code>test_three_runs_report_timings_and_medians</code></td></tr>
   <tr><td>連不上時訊息裡的 "unreachable"</td><td><code>test_unreachable_drone_fails_fast</code></td></tr>
 </table>
-<p>9 個 mutation，<b class="hl-ok">9 個都被抓到</b>。你可以自己做其中一個（見下面的「驗證」一節）。</p>
+<p>11 個 mutation，<b class="hl-ok">11 個都被抓到</b>。你可以自己做其中一個（見下面的「驗證」一節）。</p>
+<p>
+  code review 追加的那條「中途放棄仍要降落」測試，第一次寫出來時<b>在修正之前就綠了</b>：它在腳本退出後只等 0.5 秒就檢查，
+  而假 drone 要 2 秒才 arm，所以看到的是「還沒 arm」。這正是「沒紅過的測試不算數」要擋的：改成等到 takeoff 一定完成之後才檢查，它才紅。
+</p>
 
 <h2 id="smoke">收尾不留殘留：<code>smoke_health.sh</code></h2>
 <p>
   「<code>scripts/dev.sh</code> 之後 <code>curl localhost:8100/health</code>」這條驗收如果用手打，就是一次性的；
   依工作流程規則 5 把它寫成腳本：起後端、打 <code>/health</code>、收掉整個 process group、證明沒有 uvicorn 留下。
-  這裡連踩兩個坑，修法都在腳本本體：
+  這裡連踩三個坑，修法都在腳本本體：
 </p>
-<pre class="code" data-src="scripts/smoke_health.sh"><code># Match on the process name (-x), then filter its arguments. `pgrep -f &lt;pattern&gt;` matches
-# any command line containing the pattern -- including the shell that typed it.
+<pre class="code" data-src="scripts/smoke_health.sh"><code># What is left is judged by two facts, not by what command lines look like: any process
+# still in the backend's process group, and anything still listening on the port.
+# (Matching command lines missed uvicorn --reload's server child, which is the process
+# holding the port: `python -c "from multiprocessing.spawn import spawn_main…"`. And a
+# bare `pgrep -f &lt;pattern&gt;` also matches the shell that typed it.)
 leftovers() {
-<span class="hl">  { pgrep -ax uvicorn; pgrep -ax uv; } | grep -F "marine_backend.main:app --port $PORT" || true</span>
+<span class="hl">  if [[ -n ${PGID:-} ]]; then pgrep -a -g "$PGID" || true; fi</span>
+<span class="hl">  ss -ltnp "sport = :$PORT" 2&gt;/dev/null | tail -n +2</span>
 }
 …
 # The inner bash records its own pid before exec'ing, and that pid is the session and
@@ -643,9 +671,28 @@ PGID=$(cat "$LOG.pid")</code></pre>
   第二個坑：用 <code>pgrep -f "uvicorn marine_backend"</code> 檢查殘留，會比對到<b>下這條 pgrep 的那個 shell 自己的命令列</b>，
   於是明明乾淨也回報有殘留。
 </p>
+<p>
+  第三個坑是第二個的修法又漏了一塊。第一版改成「比對行程名稱再過濾參數」（<code>pgrep -ax uvicorn</code> 再找 <code>marine_backend.main:app</code>）。
+  但 <code>dev.sh</code> 的 process group 裡其實有 4 個行程：
+</p>
+<pre><code>    PID    PPID    PGID COMMAND
+ 897389       1  897389 uv run uvicorn marine_backend.main:app --port 8100 --reload
+ 897396  897389  897389 …/.venv/bin/python …/.venv/bin/uvicorn marine_backend.main:app --p…
+ 897397  897396  897389 …/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(5)
+ 897398  897396  897389 …/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(…
+LISTEN 0      2048                     127.0.0.1:8100       0.0.0.0:*    users:(("python",pid=897398,fd=4),("uvicorn",pid=897396,fd=4))</code></pre>
+<p class="dimnote">（前四行是 <code>ps -o pid,ppid,pgid,args -g &lt;PGID&gt;</code>，最後一行是 <code>ss -ltnp</code>；兩者都只把過長的 venv 路徑與參數以 … 截短，其餘照原樣。）</p>
+<p>
+  <b class="hl-bad">真正佔著 8100 的是最後那個 <code>spawn_main</code> 子行程</b>，它的命令列裡沒有 <code>marine_backend</code>。
+  如果只剩它活著，舊的檢查會回報「乾淨」。現在改看兩個事實：這個 process group 裡還有沒有任何行程（<code>pgrep -g</code>），
+  以及這個 port 還有沒有人在 listen（<code>ss</code>）。<code>tests/test_smoke_health.py</code> 起一個真的後端（隨機 port，不碰 SITL），
+  只殺掉命令列比對得到的那兩個行程，確認檢查仍然報得出孤兒子行程；這條測試在修正前是紅的。這也是 PR 開出後 code review 抓到的。
+</p>
 
 <h2 id="modules">模組分工</h2>
 <pre class="diagram">tests/test_health.py ──TestClient──► marine_backend/main.py  ◄──uvicorn── scripts/dev.sh ◄── scripts/smoke_health.sh
+                                                                             ▲
+tests/test_smoke_health.py ──leftovers()──────────────────────────────────────┘                (起真的後端，不碰 SITL)
 
 tests/test_baseline_script.py ──subprocess──► scripts/baseline_drone_direct.sh ──HTTP──► tests/fake_drone.py   (pytest，不碰 SITL)
                                               scripts/baseline_drone_direct.sh ──HTTP──► drone-1 :7070          (手動，真的會飛)
@@ -816,7 +863,11 @@ MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
   <div class="pit"><h4>用 <code>pgrep -f</code> 查殘留</h4><dl>
     <dt>症狀</dt><dd>明明收乾淨了，檢查卻說還有殘留。</dd>
     <dt>後果</dt><dd>要嘛誤判失敗，要嘛久了大家學會忽略這個檢查。</dd>
-    <dt>正解</dt><dd class="fix">比對行程名稱（<code>pgrep -ax uvicorn</code>）再過濾參數，或把樣式錨定在開頭（<code>^bash scripts/…</code>）。</dd></dl></div>
+    <dt>正解</dt><dd class="fix">不要用命令列判斷：看 process group 還有沒有行程（<code>pgrep -g</code>）、port 還有沒有人 listen（<code>ss</code>）。只能用命令列時，把樣式錨定在開頭（<code>^bash scripts/…</code>）。</dd></dl></div>
+  <div class="pit"><h4>「現在沒 armed」就不降落</h4><dl>
+    <dt>症狀</dt><dd>takeoff 請求逾時或被 Ctrl-C 打斷，腳本檢查一次、沒 armed，就退出了。</dd>
+    <dt>後果</dt><dd>drone 那端的 takeoff 其實還在處理，一秒後 arm 並爬升，沒有人在看。</dd>
+    <dt>正解</dt><dd class="fix">放棄之後持續盯一段時間，只要在降落以外的模式 armed 就送 land。</dd></dl></div>
   <div class="pit"><h4>測試只因「檔案不存在」紅過</h4><dl>
     <dt>症狀</dt><dd>先寫測試、看它紅、寫實作、看它綠——每一步都做了。</dd>
     <dt>後果</dt><dd>不知道哪一條測試其實什麼都沒守住。</dd>
@@ -825,7 +876,7 @@ MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
 
 <h2 id="summary">小結與下一步</h2>
 <ul>
-  <li>repo 能 <code>uv sync</code>、能 <code>uv run pytest</code>（9 條）、能起後端並乾淨收掉。<code>CLAUDE.md</code> 是給 agent 或新 session 的單一入口（怎麼裝、怎麼測、SITL 前置條件、PR 流程），<code>README.md</code> 是給人看的簡介與進度。</li>
+  <li>repo 能 <code>uv sync</code>、能 <code>uv run pytest</code>（12 條）、能起後端並乾淨收掉。<code>CLAUDE.md</code> 是給 agent 或新 session 的單一入口（怎麼裝、怎麼測、SITL 前置條件、PR 流程），<code>README.md</code> 是給人看的簡介與進度。</li>
   <li>drone 今天的行為存證在 <code>docs/baseline.md</code>：版本 1.8.4、45 個欄位、<code>update_time</code> 秒／<code>timestamp</code> 毫秒、起飛 5.28 s、降落 22.97 s。</li>
   <li>三個發現已排進後面的 step：<code>is_ready_to_arm</code> 跟著模式走（step 2 的 UI 不能把它當「不能飛」）；
       step 3 原本「剛降落完起飛會被拒」的驗收前提不成立；takeoff POST 只要 0.03 s（step 3 的轉發逾時要依此重定）。</li>
@@ -844,7 +895,7 @@ MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
   <p>從送出 POST 前一刻，到 drone 自己的 <code>/get_drone_state</code> 報出 <code>alt_rel ≥ 9.5</code>。200 只代表派發成功（G6），實測 0.03 s 就回，那時飛機才剛開始爬升。</p></details>
 <details><summary>3. 如果把 <code>req</code> 改成 <code>echo "$BODY"</code>，呼叫端寫 <code>STATE=$(req GET /get_drone_state)</code>，drone 連不上時會發生什麼？</summary>
   <p><code>die</code> 在 <code>$(…)</code> 的子 shell 裡執行，只結束子 shell；主腳本拿到空的 <code>STATE</code> 繼續跑，錯誤訊息會出現在後面不相干的 <code>jq</code> 那一行。（嚴格說，<code>set -e</code> 下賦值會帶著子 shell 的結束碼，腳本也可能在那裡停住，但訊息已經被吞掉了。）</p></details>
-<details><summary>4. 為什麼 8 條腳本測試都紅過了，還要做 mutation？</summary>
+<details><summary>4. 為什麼最初的 8 條腳本測試都紅過了，還要做 mutation？</summary>
   <p>它們第一次紅都是因為腳本不存在（exit 127）。那只證明「沒有腳本時會紅」，不證明每一條守得住它宣稱的那個行為。mutation 一次拿掉一個行為，才看得出每條測試各自會在什麼時候紅。</p></details>
 <details><summary>5. 你跑出來的起飛時間是 6.9 s，基線中位數是 5.28 s。算不算回歸？</summary>
   <p>不算。規則 7 的容差取「±30%（±1.58 s）」與「±5 s」較寬者，也就是 ±5 s，範圍 0.28–10.28 s；而且規則 7 看的是 3 次的中位數，不是單次。</p></details>

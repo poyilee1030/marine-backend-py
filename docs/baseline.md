@@ -97,7 +97,9 @@ show what normal variation looks like. Revisit after step 3 adds 3 more runs.
    *We expected:* a leftover check on `uvicorn marine_backend` finds only uvicorn.
    *Actually:* it also matched the caller's own `bash -c "…"` command line, which
    contains the pattern. *Now:* match the process name (`pgrep -ax uvicorn`) and then
-   filter arguments, or anchor the pattern (`^bash scripts/…`).
+   filter arguments, or anchor the pattern (`^bash scripts/…`). **Superseded before merge**
+   for `smoke_health.sh`: matching command lines misses uvicorn's `--reload` child (see
+   "Step 1 — code review fixes" below); anchoring still stands for the baseline script.
 6. **Starlette 1.7 deprecates `httpx` in `TestClient`** (`StarletteDeprecationWarning`,
    "install `httpx2` instead"). `httpx2` 2.13.1 is pydantic's successor to httpx. Left as
    is for now (a warning, not a failure); the choice belongs in step 2 before it depends
@@ -138,3 +140,37 @@ Both medians are inside the step-1 windows (takeoff 0.28–10.28 s, land 16.08�
 Against the first session: takeoff +0.52 s, land +1.04 s. That session-to-session
 shift is larger than the within-session spread (≈0.5 s), which is one more reason not
 to tighten rule 7 from a single session.
+
+---
+
+## Step 1 — code review fixes (2026-09-25)
+
+`/code-review medium` on PR #1 (clean session) reported 3 findings. Each was reproduced
+before fixing, and each fix has a test that was seen red first.
+
+1. **An abort could leave a late-arming takeoff unwatched** (`baseline_drone_direct.sh`
+   `cleanup`). *We expected:* "not armed when the exit trap looks" means nothing to land.
+   *Actually:* a takeoff POST that timed out (`COMMAND_TIMEOUT_S`, 60 s) or was interrupted
+   may still be arming on the drone. Reproduced with `FakeDrone(takeoff_delay=2.0)` and
+   `COMMAND_TIMEOUT_S=1`: the script exited at ~1 s, the fake armed at 2 s and stayed armed.
+   *Now:* the trap watches for `ABORT_WATCH_S` (default 15 s) and lands whenever the aircraft
+   is armed outside QLAND (20). Measured on drone-1: `POST /api/land` on a disarmed aircraft
+   on the ground answers 200 (`LAND accepted (ACCEPTED)`) and changes nothing, stays QLAND.
+   The first version of the regression test was **green before the fix**, because it
+   looked 0.5 s after exit, before the fake had armed. It now waits past `takeoff_delay`.
+2. **`ALT_REACHED` ignored `ALTITUDE`.** It was fixed at 9.5, so `ALTITUDE=5` could never
+   finish. *Now:* default `ALTITUDE − 0.5` (9.5 for 10 m, as ROADMAP step 1; the same 0.5 m
+   tolerance as marlin-drone's `drone/scratch/take_off_land.py`).
+3. **`smoke_health.sh` could report "clean" while the port was still held.** `dev.sh`'s
+   process group has 4 processes, and the one listening on the port is uvicorn `--reload`'s
+   child `python -c "from multiprocessing.spawn import spawn_main…"`, whose command line
+   has no `marine_backend`. *Now:* `leftovers()` reports any process still in the group
+   (`pgrep -g`) and anything still listening on the port (`ss`). `tests/test_smoke_health.py`
+   starts a real backend on a random port, SIGKILLs only the two processes whose command
+   line names the app, and checks that the orphaned child is still reported.
+
+**Tests:** 12 (was 9). The mutation self-check now has 11 mutations, all caught; the
+two new ones are "watch only once" and "threshold fixed at 9.5".
+
+**Not re-flown.** None of the fixes changes a successful run's timing path (the trap only
+runs on abort, and `ALT_REACHED` is still 9.5 for 10 m), so the step-1 medians stand.

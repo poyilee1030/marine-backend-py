@@ -26,16 +26,20 @@ DRONE=${1:?usage: $0 <drone_url>}
 DRONE=${DRONE%/}
 RUNS=${RUNS:-3}
 ALTITUDE=${ALTITUDE:-10}
-ALT_REACHED=${ALT_REACHED:-9.5}
+# "Reached" = within 0.5 m of the target: 9.5 for the default 10 m (ROADMAP step 1), the
+# same tolerance as marlin-drone's drone/scratch/take_off_land.py. Follows ALTITUDE.
+ALT_REACHED=${ALT_REACHED:-$(awk "BEGIN { print $ALTITUDE - 0.5 }")}
 POLL_S=${POLL_S:-0.5}
 READY_TIMEOUT_S=${READY_TIMEOUT_S:-10}
 TAKEOFF_TIMEOUT_S=${TAKEOFF_TIMEOUT_S:-120}  # the drone's own DroneParams.TAKEOFF_TIMEOUT
 LAND_TIMEOUT_S=${LAND_TIMEOUT_S:-180}
 # takeoff answers only after GUIDED + arm + NAV_TAKEOFF are all acknowledged.
 COMMAND_TIMEOUT_S=${COMMAND_TIMEOUT_S:-60}
+# After an abort, how long to keep watching for a takeoff that is still arming.
+ABORT_WATCH_S=${ABORT_WATCH_S:-15}
 
 TMP=$(mktemp -d)
-COMMANDED=0  # set once we have sent a takeoff; the exit trap then lands an armed aircraft
+COMMANDED=0  # 1 from sending a takeoff until we have seen that flight disarm
 
 log() { echo "[$(date +%H:%M:%S)] $*" >&2; }
 die() { echo "$*" >&2; exit 1; }
@@ -66,16 +70,28 @@ task_state() {
   if [[ $CODE == 200 ]]; then jq -r .state <<<"$BODY" >"$TMP/task"; else echo "http_$CODE" >"$TMP/task"; fi
 }
 
+abort_land() {
+  log "$1: sending POST /api/land"
+  curl -sS -m 30 -X POST -H 'content-type: application/json' -d '{}' "$DRONE/api/land" >&2 || true
+  echo >&2
+}
+
 cleanup() {
-  local rc=$?
+  local rc=$? t0 s
   trap - EXIT
   if ((COMMANDED)); then
-    # An abort between takeoff and touchdown must not leave the aircraft flying.
-    if curl -sS -m 5 "$DRONE/get_drone_state" 2>/dev/null | jq -e '.is_armed == true' >/dev/null 2>&1; then
-      log "aborting with the aircraft armed: sending POST /api/land"
-      curl -sS -m 30 -X POST -H 'content-type: application/json' -d '{}' "$DRONE/api/land" >&2 || true
-      echo >&2
-    fi
+    # An abort between takeoff and touchdown must not leave the aircraft flying. "Not
+    # armed right now" proves nothing: a takeoff POST that timed out or was interrupted
+    # may still be arming on the drone. So watch for ABORT_WATCH_S and land whenever the
+    # aircraft is armed outside QLAND (20) -- already landing needs no second command.
+    t0=$(now)
+    while is_true "$(now) - $t0 < $ABORT_WATCH_S"; do
+      if s=$(curl -sS -m 5 "$DRONE/get_drone_state" 2>/dev/null) &&
+        jq -e '.is_armed == true and .flight_mode != 20' >/dev/null 2>&1 <<<"$s"; then
+        abort_land "aborting with the aircraft armed outside QLAND"
+      fi
+      sleep "$POLL_S"
+    done
   fi
   rm -rf "$TMP"
   exit "$rc"
@@ -153,6 +169,7 @@ fly_once() {  # run index -> prints one RUN line
     sleep "$POLL_S"
   done
   land_s=$(calc "$(now) - $t1")
+  COMMANDED=0
   task_state "$land_id"
   log "run $i: disarmed after ${land_s}s (task $land_id: $(cat "$TMP/task"))"
 
@@ -177,6 +194,5 @@ LANDS=()
 for ((i = 1; i <= RUNS; i++)); do
   fly_once "$i"
 done
-COMMANDED=0
 
 printf 'MEDIAN takeoff_s=%.2f land_s=%.2f\n' "$(median "${TAKEOFFS[@]}")" "$(median "${LANDS[@]}")"

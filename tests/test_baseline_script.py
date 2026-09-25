@@ -9,6 +9,7 @@ and a finished run prints one RUN line per flight plus the medians.
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 
 from tests.fake_drone import GUIDED, QRTL, FakeDrone
@@ -18,7 +19,8 @@ SCRIPT = Path(
     os.environ.get("BASELINE_SCRIPT")
     or Path(__file__).resolve().parent.parent / "scripts" / "baseline_drone_direct.sh"
 )
-FAST = {"POLL_S": "0.05", "READY_TIMEOUT_S": "1", "TAKEOFF_TIMEOUT_S": "5", "LAND_TIMEOUT_S": "5"}
+FAST = {"POLL_S": "0.05", "READY_TIMEOUT_S": "1", "TAKEOFF_TIMEOUT_S": "5", "LAND_TIMEOUT_S": "5",
+        "ABORT_WATCH_S": "0.3"}
 
 
 def run(url: str, **env) -> subprocess.CompletedProcess:
@@ -115,6 +117,29 @@ def test_takeoff_timeout_lands_the_aircraft_before_exiting():
     assert result.returncode == 1
     assert "TIMEOUT" in result.stderr
     assert [p for p, _ in drone.posts()][-1] == "/api/land"
+
+
+def test_abort_while_takeoff_is_still_arming_still_lands():
+    # The takeoff request outlives the script's own timeout: the aircraft is not armed
+    # when the script gives up, and arms a second later. "Not armed right now" must not
+    # be taken to mean "nothing to land" (code review of PR #1).
+    drone = FakeDrone(takeoff_delay=2.0)
+    with drone as url:
+        result = run(url, COMMAND_TIMEOUT_S="1", ABORT_WATCH_S="4")
+        # Look only after the late takeoff has certainly armed the aircraft.
+        time.sleep(drone.takeoff_delay + drone.land_s + 0.5)
+        final = drone.state()
+
+    assert result.returncode == 1
+    assert final["is_armed"] is False, result.stderr
+
+
+def test_lower_altitude_uses_a_matching_threshold():
+    # ALTITUDE=5 must not wait for the 10 m run's 9.5 m threshold (code review of PR #1).
+    with FakeDrone() as url:
+        result = run(url, RUNS="1", ALTITUDE="5")
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_unreachable_drone_fails_fast():
