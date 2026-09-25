@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step 1 — 骨架與 drone API 基線 · marine-backend-py</title>
+<style>
+:root {
+  --bg: #0f1419; --panel: #161d26; --panel2: #1c2530; --fg: #e6edf3; --muted: #9aa7b4;
+  --line: #2b3642; --accent: #6aa6ff; --ok: #4cc38a; --bad: #f07178; --warn: #e5b567;
+  --code-bg: #0b1016; --hl-bg: rgba(106, 166, 255, .13);
+  --c-script: #6aa6ff; --c-coord: #4cc38a; --c-fc: #f0a35c; --c-backend: #b58cff;
+  --band: rgba(154, 167, 180, .16);
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fbfcfd; --panel: #ffffff; --panel2: #f0f3f7; --fg: #1d2630; --muted: #5b6875;
+    --line: #d5dde5; --accent: #2f6fd6; --ok: #1f8f5a; --bad: #c9383f; --warn: #a86f00;
+    --code-bg: #f5f7fa; --hl-bg: rgba(47, 111, 214, .10);
+    --c-script: #2f6fd6; --c-coord: #1f8f5a; --c-fc: #c56a14; --c-backend: #7b4fd1;
+    --band: rgba(91, 104, 117, .14);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fbfcfd; --panel: #ffffff; --panel2: #f0f3f7; --fg: #1d2630; --muted: #5b6875;
+  --line: #d5dde5; --accent: #2f6fd6; --ok: #1f8f5a; --bad: #c9383f; --warn: #a86f00;
+  --code-bg: #f5f7fa; --hl-bg: rgba(47, 111, 214, .10);
+  --c-script: #2f6fd6; --c-coord: #1f8f5a; --c-fc: #c56a14; --c-backend: #7b4fd1;
+  --band: rgba(91, 104, 117, .14);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.75 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif;
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 64px; }
+a { color: var(--accent); }
+h2 { margin: 56px 0 12px; font-size: 1.45rem; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+h3 { margin: 32px 0 8px; font-size: 1.12rem; }
+code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; font-size: .9em;
+  background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+b.hl-ok  { color: var(--ok); }
+b.hl-bad { color: var(--bad); }
+b.hl-key { color: var(--accent); }
+
+/* pagenav */
+.pagenav { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 14px 0; font-size: .92rem; border-bottom: 1px solid var(--line); }
+.pagenav.bottom { border-bottom: 0; border-top: 1px solid var(--line); margin-top: 56px; }
+.pagenav .dim { color: var(--muted); }
+.theme-btn { font: inherit; font-size: .85rem; color: var(--muted); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+
+/* hero */
+.hero { padding: 40px 0 8px; }
+.badge { display: inline-block; font-size: .8rem; font-weight: 700; letter-spacing: .06em;
+  color: var(--bg); background: var(--accent); padding: 2px 10px; border-radius: 999px; }
+.hero h1 { font-size: 2rem; margin: 12px 0 8px; line-height: 1.3; }
+.lead { font-size: 1.08rem; color: var(--fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.chip { font: 12.5px ui-monospace, Menlo, Consolas, monospace; padding: 2px 8px; border-radius: 6px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted); }
+.chip.new { border-color: var(--ok); color: var(--ok); }
+.chip.mod { border-color: var(--warn); color: var(--warn); }
+
+/* legend */
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .88rem; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 16px 0; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+/* code, shell, output */
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  overflow-x: auto; font: 13px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; margin: 12px 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+pre.shell { border-left: 3px solid var(--accent); position: relative; padding-top: 28px; }
+pre.shell::before { content: "貼上執行"; position: absolute; top: 6px; left: 14px; font-size: 11px;
+  font-family: system-ui, sans-serif; color: var(--accent); letter-spacing: .05em; }
+pre.code { position: relative; padding-top: 28px; }
+pre.code::before { content: attr(data-src); position: absolute; top: 6px; left: 14px; font-size: 11px;
+  color: var(--muted); }
+pre .hl { display: inline-block; min-width: 100%; background: var(--hl-bg);
+  box-shadow: inset 3px 0 0 var(--accent); margin: 0 -14px; padding: 0 14px; }
+pre .mk { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center;
+  border-radius: 50%; background: var(--accent); color: var(--bg); font: 700 11px system-ui, sans-serif;
+  margin-left: 8px; }
+pre .dimline { color: var(--muted); }
+ol.notes { margin: 4px 0 16px; padding-left: 0; list-style: none; counter-reset: n; }
+ol.notes li { counter-increment: n; position: relative; padding-left: 30px; margin: 6px 0; }
+ol.notes li::before { content: counter(n); position: absolute; left: 0; top: 4px; width: 18px; height: 18px;
+  line-height: 18px; text-align: center; border-radius: 50%; background: var(--accent); color: var(--bg);
+  font: 700 11px system-ui, sans-serif; }
+pre.diagram { background: var(--panel); }
+.dimnote { font-size: .85rem; color: var(--muted); margin-top: -4px; }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: .93rem; }
+th, td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { background: var(--panel2); }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* callouts */
+.note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--warn);
+  border-radius: 8px; padding: 10px 14px; margin: 14px 0; }
+.note.ok { border-left-color: var(--ok); }
+
+/* figures */
+figure.fig { margin: 18px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; overflow-x: auto; }
+figure.fig svg { width: 100%; height: auto; display: block; min-width: 640px; }
+figcaption { font-size: .9rem; color: var(--muted); margin-top: 8px; }
+.s-lbl { font-size: 13px; fill: var(--fg); }
+.s-sm { font-size: 11.5px; fill: var(--muted); }
+.s-mono { font: 11.5px ui-monospace, Menlo, Consolas, monospace; fill: var(--fg); }
+.s-key { font: 12.5px ui-monospace, Menlo, Consolas, monospace; fill: var(--accent); }
+.s-box { fill: var(--panel2); stroke: var(--line); stroke-width: 1.2; }
+.c-script { fill: var(--c-script); }
+.c-coord { fill: var(--c-coord); }
+.c-fc { fill: var(--c-fc); }
+.c-ok { fill: var(--ok); }
+.c-bad { fill: var(--bad); }
+svg a:hover .s-box { stroke: var(--accent); }
+
+/* pitfalls */
+.pits { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; margin: 14px 0; }
+.pit { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: .93rem; }
+.pit h4 { margin: 0 0 8px; font-size: 1rem; }
+.pit dl { margin: 0; }
+.pit dt { font-size: .78rem; font-weight: 700; letter-spacing: .05em; color: var(--muted); margin-top: 6px; }
+.pit dd { margin: 0 0 2px; }
+.pit dd.fix { color: var(--ok); }
+
+/* quiz */
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 8px 0; }
+summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="pagenav top" aria-label="章節導覽">
+  <span class="dim">← 這是第一章</span>
+  <a href="index.html">目錄</a>
+  <span><span class="dim">Step 2（尚未撰寫）→</span>
+  <button class="theme-btn" type="button" onclick="toggleTheme()">切換深／淺</button></span>
+</nav>
+
+<header class="hero">
+  <span class="badge">STEP 1 · PR #1</span>
+  <h1>骨架與 drone API 基線</h1>
+  <p class="lead">
+    這一步只做兩件事：讓 repo <b>裝得起來、跑得起來、測得起來</b>；然後<b class="hl-key">繞過本後端，直接量 drone 自己</b>，
+    把它今天的行為——欄位、時間單位、起飛與降落要多久——存成 <code>docs/baseline.md</code>。
+    後面每一個 step 都拿這份數字當對照組：沒有它，「我沒弄壞」就只是一句話。
+  </p>
+  <div class="chips">
+    <span class="chip new">pyproject.toml</span><span class="chip new">uv.lock</span>
+    <span class="chip new">marine_backend/main.py</span><span class="chip new">scripts/dev.sh</span>
+    <span class="chip new">scripts/smoke_health.sh</span><span class="chip new">scripts/baseline_drone_direct.sh</span>
+    <span class="chip new">tests/test_health.py</span><span class="chip new">tests/fake_drone.py</span>
+    <span class="chip new">tests/test_baseline_script.py</span><span class="chip new">docs/baseline.md</span>
+    <span class="chip new">CLAUDE.md</span><span class="chip new">README.md</span><span class="chip mod">ROADMAP.md</span>
+  </div>
+</header>
+
+<div class="legend" aria-label="色彩代表的執行者">
+  <span><i style="background:var(--c-script)"></i>本 repo 的腳本與測試（bash／pytest）</span>
+  <span><i style="background:var(--c-coord)"></i>drone 的 coordinator（HTTP :7070）</span>
+  <span><i style="background:var(--c-fc)"></i>飛控（ArduPlane SITL：電腦上模擬的飛控與機體）</span>
+  <span><i style="background:var(--c-backend)"></i>本後端 marine-backend-py（:8100；本章只有 <code>/health</code>，step 2 起才接上 drone）</span>
+</div>
+
+<h2 id="why">為什麼需要這一步</h2>
+<p>
+  這個專案要做的是一條很短的鏈：瀏覽器 → 本後端（:8100）→ 每台 drone 的 coordinator（:7070）→ 飛控。
+  step 2、step 3 會在中間那一段寫程式，而驗收標準寫的是「按了起飛，drone 真的飛到 10 m」。
+  問題是：<b>10 m 要飛多久才算正常？</b>降落 20 秒是快還是慢？<code>update_time</code> 是秒還是毫秒？
+  這些都不是本後端決定的，是 drone 決定的——所以要在本後端還不存在的時候，<b class="hl-key">先直接量 drone</b>。
+</p>
+<p>
+  直接量還有第二個理由：之後經由後端量到的數字，只要和這裡的數字差不多，就能說「後端沒有拖慢或弄壞什麼」；
+  差很多，就知道問題出在後端那一段。這就是 ROADMAP 工作流程規則 7 說的<b>基線對照</b>。
+</p>
+<div class="note ok">
+  <b>本章會用到的飛控名詞</b>（沒碰過 ArduPilot 的話先看這裡）
+  <ul>
+    <li><b>SITL</b>：在電腦上模擬的飛控與機體，跑在 docker 容器裡。本章說「會真的飛」，指的是<b>模擬機在模擬器裡真的起降</b>，不是實機。</li>
+    <li><b>ArduPlane quadplane</b>：ArduPilot 的固定翼韌體加上垂直起降（VTOL）旋翼。本專案只用它的多旋翼飛法，名字 Q 開頭的模式（QLAND、QRTL…）就是這一類。</li>
+    <li><b>arm／disarm</b>：解鎖／上鎖馬達。armed 表示馬達可以出力，不論在地面或空中；飛控偵測到著地後會自動 disarm。</li>
+    <li><b>pre-arm</b>：飛控在允許 arm 之前做的自我檢查。<code>is_ready_to_arm</code> 就是它的結果。</li>
+    <li><b><code>flight_mode</code> 是整數</b>（ArduPlane 的 custom mode，對照表取自 pymavlink 的 <code>mode_mapping_apm</code>）。本章出現的：
+      <b>15 GUIDED</b>（聽外部指令飛，起飛就用它）、<b>20 QLAND</b>（原地垂直降落）、<b>21 QRTL</b>（垂直返航並降落）、11 RTL（返航）。</li>
+    <li><b>MAVLink</b>：飛控對外溝通的協定。圖裡的 <code>DO_SET_MODE</code>、<code>NAV_TAKEOFF</code> 是它的指令名，<code>ACK</code> 是飛控的回覆。</li>
+    <li><b>GCS</b>（地面站）：任何能對飛控下指令的程式。本後端也算一個，所以同一台 drone 同時只該有一個 GCS 在下指令。</li>
+    <li><b>marlin-drone</b>：drone 端的 repo，coordinator 的原始碼在裡面；本章引用的 <code>drone_api_server.py</code> 等檔案都在那裡。</li>
+    <li><b>「規則 N」「選型決策 N」「G 編號」</b>都在 repo 根目錄的 <code>ROADMAP.md</code>：規則是「工作流程規則」，G1–G10 是「對 drone 側介面的審查」裡列的缺口（例如 G2＝兩個時間欄位單位不同、G6＝takeoff 回 200 只代表已派發）。</li>
+  </ul>
+</div>
+<table>
+  <tr><th>你可能以為要自己做</th><th>實際上</th></tr>
+  <tr><td>先自己裝 Python 3.12、建 venv、<code>source .venv/bin/activate</code></td>
+      <td>不用。<code>uv sync</code> 會自己下載 3.12（<code>.python-version</code> 釘住），<code>uv run …</code> 不需要 activate。</td></tr>
+  <tr><td>跑基線之前要先把後端起起來</td>
+      <td>不用。基線腳本<b>刻意繞過後端</b>，直接打 drone 的 :7070（<code>scripts/baseline_drone_direct.sh</code> 開頭註解）。</td></tr>
+  <tr><td>起飛前要先按 arm，或先手動切到 GUIDED</td>
+      <td>不用。<code>POST /api/takeoff</code> 自己會切 GUIDED 並 arm；腳本在 <code>is_ready_to_arm</code> 不是 true 時也會自己先切 GUIDED（<code>preflight()</code>）。</td></tr>
+  <tr><td>跑完要自己把 drone 降下來、把程式收掉</td>
+      <td>不用。每一輪都自己降落；中途失敗時 <code>trap cleanup EXIT</code> 會再盯 <code>ABORT_WATCH_S</code> 秒（預設 15），飛機只要在 QLAND 以外的模式 armed 就送 land。腳本本身不開背景程序。</td></tr>
+</table>
+
+<h2 id="journey">全景：一次基線 run 的完整旅程</h2>
+<p>
+  腳本一次 run 做的事，按時間順序畫出來就是下面這張圖。三條直線是三個執行者：左邊是我們的腳本，
+  中間是 drone 容器裡的 coordinator（它把 HTTP 翻成 MAVLink），右邊是飛控。
+  點圖上的方框可以跳到講那一段的小節。
+</p>
+<figure class="fig">
+<svg viewBox="0 0 900 610" role="img" aria-label="一次基線 run 的時序：讀狀態、切 GUIDED、起飛、輪詢高度、降落、輪詢 disarm，以及 takeoff_s 與 land_s 的計時範圍">
+  <defs>
+    <marker id="m1s" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-script)"/></marker>
+    <marker id="m1c" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-coord)"/></marker>
+    <marker id="m1f" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-fc)"/></marker>
+  </defs>
+  <!-- lanes -->
+  <a href="#script"><rect x="50" y="14" width="160" height="44" rx="8" class="s-box" stroke="var(--c-script)"/>
+  <text class="s-lbl c-script" x="130" y="41" text-anchor="middle" font-weight="700">基線腳本</text></a>
+  <rect x="370" y="14" width="160" height="44" rx="8" class="s-box"/>
+  <text class="s-lbl c-coord" x="450" y="41" text-anchor="middle" font-weight="700">coordinator :7070</text>
+  <rect x="690" y="14" width="160" height="44" rx="8" class="s-box"/>
+  <text class="s-lbl c-fc" x="770" y="41" text-anchor="middle" font-weight="700">飛控 ArduPlane</text>
+  <line x1="130" y1="58" x2="130" y2="600" stroke="var(--c-script)" stroke-width="1" stroke-dasharray="3 4"/>
+  <line x1="450" y1="58" x2="450" y2="600" stroke="var(--c-coord)" stroke-width="1" stroke-dasharray="3 4"/>
+  <line x1="770" y1="58" x2="770" y2="600" stroke="var(--c-fc)" stroke-width="1" stroke-dasharray="3 4"/>
+
+  <!-- 1 read state -->
+  <text class="s-mono" x="290" y="92" text-anchor="middle">GET /get_drone_state</text>
+  <line x1="132" y1="100" x2="446" y2="100" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-sm c-coord" x="290" y="122" text-anchor="middle">is_ready_to_arm=false（停在 QLAND）</text>
+  <line x1="448" y1="130" x2="134" y2="130" stroke="var(--c-coord)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1c)"/>
+
+  <!-- 2 set mode -->
+  <a href="#preflight"><rect x="12" y="152" width="106" height="26" rx="6" class="s-box"/>
+  <text class="s-sm" x="65" y="169" text-anchor="middle">前置條件</text></a>
+  <text class="s-mono" x="290" y="164" text-anchor="middle">POST /api/set-mode GUIDED</text>
+  <line x1="132" y1="172" x2="446" y2="172" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-mono" x="610" y="164" text-anchor="middle">DO_SET_MODE</text>
+  <line x1="452" y1="172" x2="766" y2="172" stroke="var(--c-coord)" stroke-width="1.6" marker-end="url(#m1c)"/>
+  <text class="s-sm c-fc" x="610" y="194" text-anchor="middle">ACK</text>
+  <line x1="768" y1="202" x2="454" y2="202" stroke="var(--c-fc)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1f)"/>
+  <rect x="690" y="216" width="190" height="42" rx="6" class="s-box"/>
+  <text class="s-sm" x="785" y="233" text-anchor="middle">pre-arm 重算，約 1 s 後</text>
+  <text class="s-mono" x="785" y="250" text-anchor="middle">is_ready_to_arm=true</text>
+  <text class="s-sm" x="290" y="244" text-anchor="middle">輪詢直到 is_ready_to_arm=true</text>
+
+  <!-- 3 takeoff -->
+  <a href="#measure"><rect x="12" y="286" width="106" height="26" rx="6" class="s-box"/>
+  <text class="s-sm" x="65" y="303" text-anchor="middle">起飛與計時</text></a>
+  <text class="s-mono" x="290" y="296" text-anchor="middle">POST /api/takeoff {"altitude":10}</text>
+  <line x1="132" y1="304" x2="446" y2="304" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-mono" x="610" y="296" text-anchor="middle">GUIDED · ARM · NAV_TAKEOFF</text>
+  <line x1="452" y1="304" x2="766" y2="304" stroke="var(--c-coord)" stroke-width="1.6" marker-end="url(#m1c)"/>
+  <text class="s-sm c-coord" x="290" y="326" text-anchor="middle">200 {task_id}，0.03 s 就回</text>
+  <line x1="448" y1="334" x2="134" y2="334" stroke="var(--c-coord)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1c)"/>
+  <text class="s-sm c-fc" x="785" y="366" text-anchor="middle">爬升</text>
+  <text class="s-mono" x="290" y="366" text-anchor="middle">每 0.5 s GET /get_drone_state</text>
+  <line x1="132" y1="374" x2="446" y2="374" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-sm c-coord" x="290" y="396" text-anchor="middle">alt_rel ≥ 9.5 → 停錶</text>
+  <line x1="448" y1="404" x2="134" y2="404" stroke="var(--c-coord)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1c)"/>
+
+  <!-- 4 land -->
+  <text class="s-mono" x="290" y="440" text-anchor="middle">POST /api/land {}</text>
+  <line x1="132" y1="448" x2="446" y2="448" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-mono" x="610" y="440" text-anchor="middle">QLAND</text>
+  <line x1="452" y1="448" x2="766" y2="448" stroke="var(--c-coord)" stroke-width="1.6" marker-end="url(#m1c)"/>
+  <text class="s-sm c-coord" x="290" y="470" text-anchor="middle">200 {task_id}</text>
+  <line x1="448" y1="478" x2="134" y2="478" stroke="var(--c-coord)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1c)"/>
+  <text class="s-sm c-fc" x="785" y="510" text-anchor="middle">著地 → 自動 disarm</text>
+  <text class="s-mono" x="290" y="510" text-anchor="middle">每 0.5 s GET /get_drone_state</text>
+  <line x1="132" y1="518" x2="446" y2="518" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+  <text class="s-sm c-coord" x="290" y="540" text-anchor="middle">is_armed=false → 停錶</text>
+  <line x1="448" y1="548" x2="134" y2="548" stroke="var(--c-coord)" stroke-width="1.4" stroke-dasharray="5 4" marker-end="url(#m1c)"/>
+  <text class="s-mono" x="290" y="580" text-anchor="middle">GET /tasks/{id} → succeeded</text>
+  <line x1="132" y1="588" x2="446" y2="588" stroke="var(--c-script)" stroke-width="1.6" marker-end="url(#m1s)"/>
+
+  <!-- timers -->
+  <line x1="100" y1="304" x2="100" y2="404" stroke="var(--accent)" stroke-width="3"/>
+  <text class="s-key" x="92" y="358" text-anchor="end">takeoff_s</text>
+  <line x1="100" y1="448" x2="100" y2="548" stroke="var(--accent)" stroke-width="3"/>
+  <text class="s-key" x="92" y="502" text-anchor="end">land_s</text>
+</svg>
+<figcaption>圖 1.1 — 兩個碼錶都從「腳本送出指令」開始，到「drone 自己回報的狀態」達標為止；coordinator 回的 200 只是派發成功，不是終點。</figcaption>
+</figure>
+
+<h2 id="skeleton">uv 骨架：一條指令把環境建起來</h2>
+<p>
+  專案用 <code>uv</code> 管 Python 版本與相依。主機的系統 Python 是 3.10，沒有 step 2 要用的 <code>tomllib</code>（3.11 才進標準庫），
+  所以由 uv 自己裝 3.12，系統的 Python 不動。<code>uv.lock</code> 把每個相依的精確版本釘死，
+  「全新 clone 上 <code>uv sync &amp;&amp; uv run pytest</code> 通過」這條驗收才有意義。
+</p>
+<pre class="code" data-src="pyproject.toml"><code>[project]
+name = "marine-backend-py"
+…
+requires-python = "&gt;=3.12"
+dependencies = [
+    "fastapi&gt;=0.141.1",
+    "httpx&gt;=0.28.1",
+    "uvicorn&gt;=0.54.0",
+]
+…
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# ~/.bashrc sources ROS Humble, whose PYTHONPATH (py3.10) injects launch_testing
+# as a pytest entry-point plugin and crashes collection. We use no third-party plugins.
+<span class="hl">addopts = "--disable-plugin-autoload"</span></code></pre>
+<p>
+  最後一行是這一步踩到的第一個坑。這台主機的 <code>~/.bashrc</code> 會 <code>source /opt/ros/humble/setup.bash</code>，
+  它把 <code>PYTHONPATH</code> 設成 ROS 的 Python 3.10 site-packages。<code>PYTHONPATH</code> 的搜尋順序排在 venv 前面，
+  而 pytest 預設會自動載入所有已安裝套件透過 entry point 登記的 plugin，
+  於是它一啟動就載入了 ROS 的 <code>launch_testing</code> plugin，接著在 <code>import yaml</code> 崩潰——
+  <b class="hl-bad">一條測試都還沒收集就掛了</b>。本專案不用任何第三方 pytest plugin，所以直接關掉自動載入；
+  會跑 Python 的腳本則另外 <code>unset PYTHONPATH</code>。你的 shell 如果沒有 source ROS，這兩處對你沒有影響。
+</p>
+<pre class="code" data-src="scripts/dev.sh"><code><span class="hl">unset PYTHONPATH</span>
+exec uv run uvicorn marine_backend.main:app --port "${PORT:-8100}" --reload</code></pre>
+
+<h3 id="health">/health：最小的可測對象</h3>
+<p>
+  後端這一步只有一個端點。它存在的意義不是功能，而是讓「裝得起來、起得起來、測得起來」三件事各有一個可驗證的東西。
+  依工作流程規則 10，測試先寫：它第一次跑時紅在 <code>ModuleNotFoundError: No module named 'marine_backend.main'</code>
+  ——紅的原因是「功能還不存在」，這才算數。
+</p>
+<pre class="code" data-src="tests/test_health.py"><code>def test_health_returns_ok():
+    client = TestClient(app)
+
+    resp = client.get("/health")
+
+    assert resp.status_code == 200
+    assert resp.json() == {"ok": True}</code></pre>
+<pre class="code" data-src="marine_backend/main.py"><code>from fastapi import FastAPI
+
+app = FastAPI(title="marine-backend-py")
+
+
+@app.get("/health")
+def health() -&gt; dict[str, bool]:
+    return {"ok": True}</code></pre>
+
+<h2 id="script">基線腳本：直接量 drone</h2>
+<p>
+  <code>scripts/baseline_drone_direct.sh &lt;drone_url&gt;</code> 是這一步的主角。它只用 <code>curl</code> 和 <code>jq</code>，
+  對 drone 做三件事：記下版本與欄位、確認可以起飛、然後起降三次並計時。
+  它的 stdout 只印要貼進 <code>docs/baseline.md</code> 的那幾行（<code>VERSION</code>、<code>FIELDS</code>、<code>UNITS</code>、<code>RUN</code>、<code>MEDIAN</code>），
+  進度一律印到 stderr，這樣輸出本身就是可被測試斷言的契約。
+</p>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code><span class="hl">set -euo pipefail</span>
+
+DRONE=${1:?usage: $0 &lt;drone_url&gt;}
+DRONE=${DRONE%/}
+RUNS=${RUNS:-3}
+ALTITUDE=${ALTITUDE:-10}
+# "Reached" = within 0.5 m of the target: 9.5 for the default 10 m (ROADMAP step 1), the
+# same tolerance as marlin-drone's drone/scratch/take_off_land.py. Follows ALTITUDE.
+<span class="hl">ALT_REACHED=${ALT_REACHED:-$(awk "BEGIN { print $ALTITUDE - 0.5 }")}</span>
+POLL_S=${POLL_S:-0.5}
+READY_TIMEOUT_S=${READY_TIMEOUT_S:-10}
+TAKEOFF_TIMEOUT_S=${TAKEOFF_TIMEOUT_S:-120}  # the drone's own DroneParams.TAKEOFF_TIMEOUT
+LAND_TIMEOUT_S=${LAND_TIMEOUT_S:-180}</code></pre>
+<p>
+  <code>set -euo pipefail</code> 讓腳本在任何指令失敗、用到未定義變數、或管線中任一段失敗時立刻結束。
+  <code>${X:-預設}</code> 是「環境變數 X 沒設就用預設」，所以每個參數都能從外面覆寫，測試就是靠這個把逾時縮短。
+  停錶門檻 <code>ALT_REACHED</code> 預設是「目標高度減 0.5 m」：預設 10 m 時就是 ROADMAP 驗收標準的 <code>alt_rel ≥ 9.5</code>，
+  0.5 m 的容差和 marlin-drone 自己的 <code>take_off_land.py</code> 一樣。（第一版寫死 9.5、不跟著 <code>ALTITUDE</code> 走，
+  <code>ALTITUDE=5</code> 會永遠等不到而逾時；PR 開出後的 code review 抓到的。）
+  <code>alt_rel</code> 是離 home（起飛點）的高度，單位公尺。
+</p>
+
+<h3 id="req">所有 HTTP 都走同一個 <code>req</code></h3>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code><span class="hl"># req METHOD PATH [BODY] [TIMEOUT]  -&gt;  sets CODE and BODY. Never call it in $(…):</span>
+<span class="hl"># its die must exit the script, not a subshell.</span>
+req() {
+  local method=$1 path=$2 body=${3:-} timeout=${4:-5} rc=0
+  local args=(-sS -m "$timeout" -o "$TMP/body" -w '%{http_code}' -X "$method")
+  [[ -n $body ]] &amp;&amp; args+=(-H 'content-type: application/json' -d "$body")
+  CODE=$(curl "${args[@]}" "$DRONE$path" 2&gt;"$TMP/err") || rc=$?
+  ((rc == 0)) || die "drone unreachable: $method $path: $(cat "$TMP/err")"
+  BODY=$(cat "$TMP/body")
+}</code></pre>
+<p>
+  兩個設計點。第一，每個請求都有 <code>-m</code> 逾時，所以腳本<b>不可能卡死在網路上</b>（工作流程規則 6）。
+  第二，<code>req</code> 把結果寫進全域變數 <code>CODE</code>／<code>BODY</code>，而不是 <code>echo</code> 出來讓呼叫端用 <code>$(req …)</code> 接。
+  原因在註解裡：<code>$(…)</code> 是子 shell，裡面的 <code>die</code> 只會結束那個子 shell，
+  腳本本體會拿著空字串繼續往下跑——<b class="hl-bad">失敗被吞掉了</b>。
+</p>
+<p>幾個 bash 語法，讀不慣的話：</p>
+<ul>
+  <li><code>${3:-}</code>：第 3 個參數，沒給就是空字串（在 <code>set -u</code> 下直接寫 <code>$3</code> 會報錯）。</li>
+  <li><code>args=(…)</code> 是陣列，<code>"${args[@]}"</code> 把它逐項展開成 curl 的參數，含空白的項也不會被拆開。</li>
+  <li><code>… || rc=$?</code>：curl 失敗時把結束碼存進 <code>rc</code>，而不是讓 <code>set -e</code> 直接結束腳本，這樣才能印出像樣的錯誤訊息。</li>
+  <li><code>-w '%{http_code}'</code> 讓 curl 把狀態碼印到 stdout（回應本文寫進 <code>-o</code> 指定的檔案）；<code>$TMP</code> 是腳本開頭 <code>mktemp -d</code> 建的暫存目錄。</li>
+  <li>腳本裡其他小工具：<code>read_state</code> 把 <code>/get_drone_state</code> 讀進 <code>STATE</code>、<code>field X</code> 用 jq 取欄位、
+      <code>now</code> 是含小數的秒、<code>is_true</code> 與 <code>calc</code> 用 awk 做浮點比較和運算（bash 只會整數）。</li>
+</ul>
+
+<h3 id="preflight">前置條件：<code>is_ready_to_arm</code> 跟著模式走</h3>
+<p>
+  ROADMAP 對前置條件的要求是「<code>is_ready_to_arm == true</code>，否則大聲失敗」。
+  第一次實際讀 drone-1（第一台模擬 drone，位址 <code>172.18.10.2:7070</code>，查法見〈對 SITL 跑基線〉），它是 <code>false</code>，模式 21（QRTL）；
+  <code>gps_fix_type</code> 6（RTK fixed，比一般 3D 定位的 3 還好）、10 顆衛星，看起來什麼都沒壞。
+  <b>原本以為</b>這代表飛機有問題、起飛會被拒絕。追下去才發現：
+</p>
+<ul>
+  <li><code>is_ready_to_arm</code> 不是 coordinator 自己算的，是<b class="hl-key">飛控自己的 pre-arm 位元</b>
+      （<code>SYS_STATUS</code> 的 <code>MAV_SYS_STATUS_PREARM_CHECK</code>，見 marlin-drone <code>drone/mavlink_telemetry_consumer.py</code>）。</li>
+  <li>ArduPlane 4.6.3 的 pre-arm 會問「目前的模式能不能 arm」。<code>ModeQLand</code>、<code>ModeQRTL</code>、<code>ModeRTL</code>
+      的 <code>_pre_arm_checks</code> 直接 <code>return false</code>（<code>ArduPlane/mode.h</code>），<code>ModeGuided</code> 是 <code>return true</code>。</li>
+  <li>而<b>我們自己的降落就停在 QLAND</b>。也就是說每一輪降落完，<code>is_ready_to_arm</code> 幾乎總是 false（剛 disarm 的一瞬間可能還讀到舊的 true，見〈對 SITL 跑基線〉的註記）。</li>
+  <li>但 <code>POST /api/takeoff</code> 會先切 GUIDED 再 arm，所以照樣起飛：coordinator 的 log 裡，
+      2026-09-24 06:06:13 剛 disarm，06:06:14 就 <code>ARM: ACCEPTED</code>。</li>
+  <li>這也推翻了 ROADMAP step 3 的一條驗收：它原本打算拿「剛降落完、<code>is_ready_to_arm=false</code> 時按起飛」當 drone 會拒絕的例子。
+      那個前提不成立，已經記進 ROADMAP，step 3 要另找會被拒絕的情境。</li>
+</ul>
+<figure class="fig">
+<svg viewBox="0 0 900 290" role="img" aria-label="飛行模式與 is_ready_to_arm 的關係：QLAND 地面為 false，切 GUIDED 後為 true，起飛、降落後回到 QLAND">
+  <defs>
+    <marker id="m2s" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-script)"/></marker>
+    <marker id="m2c" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-coord)"/></marker>
+    <marker id="m2f" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto"><path d="M0,0 L7,3.2 L0,6.4 z" fill="var(--c-fc)"/></marker>
+  </defs>
+  <rect x="20" y="110" width="190" height="72" rx="10" class="s-box"/>
+  <text class="s-lbl" x="115" y="138" text-anchor="middle" font-weight="700">QLAND · 地面</text>
+  <text class="s-mono c-bad" x="115" y="162" text-anchor="middle">is_ready_to_arm=false</text>
+  <rect x="245" y="110" width="190" height="72" rx="10" class="s-box"/>
+  <text class="s-lbl" x="340" y="138" text-anchor="middle" font-weight="700">GUIDED · 地面</text>
+  <text class="s-mono c-ok" x="340" y="162" text-anchor="middle">is_ready_to_arm=true</text>
+  <rect x="470" y="110" width="190" height="72" rx="10" class="s-box"/>
+  <text class="s-lbl" x="565" y="138" text-anchor="middle" font-weight="700">GUIDED · 空中</text>
+  <text class="s-sm" x="565" y="162" text-anchor="middle">爬升到 10 m</text>
+  <rect x="695" y="110" width="190" height="72" rx="10" class="s-box"/>
+  <text class="s-lbl" x="790" y="138" text-anchor="middle" font-weight="700">QLAND · 下降</text>
+  <text class="s-sm" x="790" y="162" text-anchor="middle">著地後自動 disarm</text>
+
+  <line x1="212" y1="146" x2="241" y2="146" stroke="var(--c-script)" stroke-width="2" marker-end="url(#m2s)"/>
+  <text class="s-sm c-script" x="228" y="100" text-anchor="middle">set-mode GUIDED</text>
+  <line x1="437" y1="146" x2="466" y2="146" stroke="var(--c-coord)" stroke-width="2" marker-end="url(#m2c)"/>
+  <text class="s-sm c-coord" x="452" y="100" text-anchor="middle">takeoff：ARM + NAV_TAKEOFF</text>
+  <line x1="662" y1="146" x2="691" y2="146" stroke="var(--c-coord)" stroke-width="2" marker-end="url(#m2c)"/>
+  <text class="s-sm c-coord" x="678" y="100" text-anchor="middle">POST /api/land</text>
+  <path d="M790,184 C790,262 115,262 115,188" fill="none" stroke="var(--c-fc)" stroke-width="2" marker-end="url(#m2f)"/>
+  <text class="s-sm c-fc" x="452" y="252" text-anchor="middle">disarm，停在 QLAND：下一輪一開始通常又是 false</text>
+  <path d="M115,108 C115,40 565,40 565,106" fill="none" stroke="var(--c-coord)" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#m2c)"/>
+  <text class="s-sm c-coord" x="340" y="38" text-anchor="middle">直接 POST /api/takeoff 也飛得起來：它自己先切 GUIDED</text>
+</svg>
+<figcaption>圖 1.2 — 降落把飛機留在一個「pre-arm 必定失敗」的模式，所以 <code>is_ready_to_arm=false</code> 不等於「不能起飛」；腳本先切 GUIDED，再照原規則檢查。</figcaption>
+</figure>
+<p>
+  當時有三個選擇：把這幾個模式視為可接受、完全不檢查而交給 takeoff 自己拒絕（drone 拒絕指令時回 409，飛控沒回應時回 504）、或維持原規則。
+  <b>最後維持原規則</b>（ROADMAP 選型決策 7）：腳本先用 coordinator 的 <code>POST /api/set-mode</code> 把飛機放進 GUIDED，
+  實測 1 秒內 <code>is_ready_to_arm</code> 變成 true，然後才嚴格檢查。已經 armed 的飛機一律不碰——那代表別人正在飛它。
+</p>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code>preflight() {
+  read_state
+  if [[ $(field is_armed) == true ]]; then
+    die "PRECONDITION FAILED: is_armed=true flight_mode=$(field flight_mode) — something else is flying it; not touching it"
+  fi
+  if [[ $(field is_ready_to_arm) != true ]]; then
+    log "is_ready_to_arm=false in flight_mode=$(field flight_mode); switching to GUIDED"
+<span class="hl">    req POST /api/set-mode '{"mode":"GUIDED"}' 15</span>
+    [[ $CODE == 200 ]] || die "POST /api/set-mode GUIDED -&gt; HTTP $CODE $BODY"
+    local t0
+    t0=$(now)
+    while read_state &amp;&amp; [[ $(field is_ready_to_arm) != true ]]; do
+      is_true "$(now) - $t0 &lt; $READY_TIMEOUT_S" || break
+      sleep "$POLL_S"
+    done
+  fi
+  if [[ $(field is_ready_to_arm) != true ]]; then
+<span class="hl">    die "PRECONDITION FAILED: is_ready_to_arm=false flight_mode=$(field flight_mode) gps_fix_type=$(field gps_fix_type)"</span>
+  fi
+}</code></pre>
+
+<h3 id="measure">起飛與計時：量的是 drone，不是回應</h3>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code>  COMMANDED=1
+<span class="hl">  t0=$(now)</span>
+  req POST /api/takeoff "{\"altitude\":$ALTITUDE}" "$COMMAND_TIMEOUT_S"
+  t_post=$(now)
+  [[ $CODE == 200 ]] || die "takeoff refused: HTTP $CODE $BODY"
+  …
+  while true; do
+    read_state
+    alt=$(field alt_rel)
+<span class="hl">    is_true "$alt &gt;= $ALT_REACHED" &amp;&amp; break</span>
+    is_true "$(now) - $t0 &lt; $TAKEOFF_TIMEOUT_S" ||
+      die "TIMEOUT: alt_rel=$alt did not reach $ALT_REACHED within ${TAKEOFF_TIMEOUT_S}s"
+    sleep "$POLL_S"
+  done
+  takeoff_s=$(calc "$(now) - $t0")</code></pre>
+<p>
+  <code>takeoff_s</code> 從送出 POST 前一刻算起，停在 <b class="hl-key">drone 自己回報的 <code>alt_rel ≥ 9.5</code></b>。
+  <code>t_post</code> 另外記下 POST 本身花了多久——ROADMAP 原本以為 takeoff「要等 GUIDED + arm + NAV_TAKEOFF 全部完成才回應，可能要一陣子」，
+  結果<b>三次都是 0.03 s</b>。這個數字直接交給 step 3 去定轉發逾時。
+  每個等待迴圈都有自己的上限（起飛 120 s，是 drone 自己的 <code>DroneParams.TAKEOFF_TIMEOUT</code>；降落 180 s）。
+</p>
+
+<h3 id="units">時間欄位的單位（G2）</h3>
+<p>
+  <code>/get_drone_state</code> 有兩個時間欄位：<code>update_time</code>（最後一次收到 MAVLink 的時間）和 <code>timestamp</code>（這個回應產生的時間）。
+  規劃時實測就懷疑兩者單位不同。腳本不照抄假設，而是拿主機時間去比，自己判斷：
+</p>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code>unit_of() {  # value now -&gt; s | ms | unknown
+  awk -v v="$1" -v n="$2" 'function abs(x) { return x &lt; 0 ? -x : x }
+    BEGIN { if (abs(v - n) &lt; 86400) print "s"; else if (abs(v / 1000 - n) &lt; 86400) print "ms"; else print "unknown" }'
+}</code></pre>
+<p>
+  判斷方式：和主機現在的秒數相差不到 86400（一天的秒數）就是秒，除以 1000 之後才接近就是毫秒。
+  結果是 <code>UNITS update_time=s timestamp=ms</code>。step 2 算 <code>telemetry_age_s</code> 時只能用 <code>update_time</code>，
+  拿錯欄位會<b class="hl-bad">差 1000 倍</b>，斷線的 drone 看起來還活著。
+</p>
+
+<h3 id="abort">中途失敗也要把飛機降下來</h3>
+<pre class="code" data-src="scripts/baseline_drone_direct.sh"><code>cleanup() {
+  local rc=$? t0 s
+  trap - EXIT
+  if ((COMMANDED)); then
+    # An abort between takeoff and touchdown must not leave the aircraft flying. "Not
+    # armed right now" proves nothing: a takeoff POST that timed out or was interrupted
+    # may still be arming on the drone. So watch for ABORT_WATCH_S and land whenever the
+    # aircraft is armed outside QLAND (20) -- already landing needs no second command.
+    t0=$(now)
+<span class="hl">    while is_true "$(now) - $t0 &lt; $ABORT_WATCH_S"; do</span>
+      if s=$(curl -sS -m 5 "$DRONE/get_drone_state" 2&gt;/dev/null) &amp;&amp;
+<span class="hl">        jq -e '.is_armed == true and .flight_mode != 20' &gt;/dev/null 2&gt;&amp;1 &lt;&lt;&lt;"$s"; then</span>
+        abort_land "aborting with the aircraft armed outside QLAND"
+      fi
+      sleep "$POLL_S"
+    done
+  fi
+  rm -rf "$TMP"
+  exit "$rc"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM</code></pre>
+<p>
+  <code>die</code> 就是 <code>exit 1</code>，所以任何失敗（逾時、連不上、被拒絕）都會走到這個 EXIT trap。
+  它不看腳本「以為」飛機在哪個狀態，而是<b>持續問 drone</b>：在 <code>ABORT_WATCH_S</code> 秒內，只要看到飛機在 QLAND 以外的模式 armed，就送 land
+  （<code>abort_land</code> 就是一個 <code>POST /api/land</code>）。已經在 QLAND 的飛機本來就在降落，不必再送。
+</p>
+<p>
+  為什麼要「持續」而不是看一次？第一版只看一次：<b>原本以為</b>「現在沒 armed」就代表不必降落。
+  但 takeoff 請求可能在腳本放棄時（逾時或 Ctrl-C）還在 drone 那端處理，飛機一秒後才 arm、然後自己爬升到 10 m——
+  <b class="hl-bad">腳本已經退出，沒有人在看</b>。這是 PR 開出後 code review 抓到的；修正前先寫了一條會重現它的測試
+  （假 drone 的 takeoff 拖 2 秒才 arm，腳本 1 秒就放棄）。
+  <code>Ctrl-C</code>（<code>INT</code>）和 <code>kill</code> 預設送的 <code>TERM</code> 也一樣，被轉成 <code>exit 130</code>（慣例是 128＋訊號編號，INT 是 2），照樣觸發 EXIT trap。
+  <code>trap - EXIT</code> 是先把自己拆掉，免得 cleanup 最後的 <code>exit</code> 又觸發一次 cleanup；
+  <code>jq -e</code> 讓 jq 的結束碼跟著運算結果走（true 為 0），<code>if</code> 就能直接拿它判斷。
+</p>
+
+<h2 id="tests">腳本也要先寫測試：假 drone 與結束碼契約</h2>
+<p>
+  工作流程規則 8 說單元測試不碰 SITL，規則 10 說先寫測試。那一支會真的讓飛機起飛的腳本要怎麼測？
+  做法是在 localhost 起一個<b class="hl-key">假 coordinator</b>（<code>tests/fake_drone.py</code>，只用標準庫的 <code>http.server</code>），
+  它的回應形狀照 marlin-drone 的 <code>drone_api_server.py</code> 抄：takeoff 回 <code>{"task_id", "message"}</code>、
+  被拒時回 <code>{"detail": …}</code>、<code>update_time</code> 秒、<code>timestamp</code> 毫秒。
+  最重要的是它模擬了上面那個坑：
+</p>
+<pre class="code" data-src="tests/fake_drone.py"><code><span class="hl">            ready = self.flight_mode == GUIDED and self.ready_after_guided</span>
+            …
+                "is_ready_to_arm": ready or self.is_armed,</code></pre>
+<p>
+  <code>or self.is_armed</code> 也是照真的飛控抄的：飛機 armed 之後，ArduPilot 一律回報 pre-arm 健康，
+  所以整段飛行中 <code>is_ready_to_arm</code> 都是 true（coordinator 原始碼的註解寫明這是旗標本身的語意）。
+</p>
+<p>
+  然後用 subprocess 真的去跑腳本，斷言它的結束碼、印出來的字、以及<b>它送了哪些請求</b>。
+  測試的來源是規格（ROADMAP 的要求與 drone 的原始碼），不是腳本本身。例如「不 ready 就大聲失敗，而且根本不送 takeoff」：
+</p>
+<pre class="code" data-src="tests/test_baseline_script.py"><code>def test_not_ready_to_arm_fails_loudly_without_takeoff():
+    drone = FakeDrone(flight_mode=QRTL, ready_after_guided=False)
+    with drone as url:
+        result = run(url)
+
+    assert result.returncode == 1
+    assert re.search(r"PRECONDITION FAILED: is_ready_to_arm=false flight_mode=15 gps_fix_type=6",
+                     result.stderr)
+<span class="hl">    assert "/api/takeoff" not in [p for p, _ in drone.posts()]</span></code></pre>
+<p>
+  斷言裡的是 <code>flight_mode=15</code>（GUIDED）而不是 21（QRTL）：腳本已經先切了 GUIDED，切完還是不 ready 才失敗，所以訊息印的是切換後的模式。
+  測試是這樣跑腳本的：
+</p>
+<pre class="code" data-src="tests/test_baseline_script.py"><code># BASELINE_SCRIPT points the suite at a mutated copy, to prove each test can fail.
+SCRIPT = Path(
+<span class="hl">    os.environ.get("BASELINE_SCRIPT")</span>
+    or Path(__file__).resolve().parent.parent / "scripts" / "baseline_drone_direct.sh"
+)
+…
+def run(url: str, **env) -&gt; subprocess.CompletedProcess:
+    return subprocess.run(
+<span class="hl">        ["bash", str(SCRIPT), url],</span></code></pre>
+<p>
+  兩件事：它用 <code>bash &lt;檔案&gt;</code> 執行，所以被測的腳本不需要執行權限；
+  環境變數 <code>BASELINE_SCRIPT</code> 有設的話，就改測那一份。
+</p>
+<p>
+  <span data-tests="tests/test_baseline_script.py" data-count="10">這個檔案共有 10 條測試</span>，
+  <span data-tests="tests" data-count="12">整個 repo 共 12 條</span>（另外兩條是 <code>/health</code> 和下面 smoke 那一節的殘留檢查）。
+  最初的 8 條腳本測試第一次跑時全部紅在 exit 127（bash 找不到要執行的檔案，因為腳本還不存在）。但「因為檔案不存在而紅」只證明它們會紅，
+  不證明<b>每一條各自守得住一個行為</b>。所以又做了一輪 mutation：複製一份腳本、每次只拿掉一個行為，用 <code>BASELINE_SCRIPT</code> 讓測試去跑副本，看該紅的測試有沒有紅。
+</p>
+<table>
+  <tr><th>從腳本副本拿掉的行為</th><th>變紅的測試</th></tr>
+  <tr><td>不 ready 時先切 GUIDED</td><td>10 條中的 7 條，包括送出 body 的那條</td></tr>
+  <tr><td>拒絕碰已 armed 的飛機</td><td><code>test_armed_aircraft_is_not_touched</code></td></tr>
+  <tr><td>切完 GUIDED 仍不 ready 就失敗</td><td><code>test_not_ready_to_arm_fails_loudly_without_takeoff</code></td></tr>
+  <tr><td>拒絕訊息裡帶 drone 的 <code>detail</code></td><td><code>test_refused_takeoff_prints_the_drones_detail</code></td></tr>
+  <tr><td>中途失敗時把 armed 的飛機降下來</td><td><code>test_takeoff_timeout_lands_the_aircraft_before_exiting</code>、<code>test_abort_while_takeoff_is_still_arming_still_lands</code></td></tr>
+  <tr><td>中途失敗後持續盯著（改成只看一次）</td><td><code>test_abort_while_takeoff_is_still_arming_still_lands</code></td></tr>
+  <tr><td>門檻跟著 <code>ALTITUDE</code>（改回寫死 9.5）</td><td><code>test_lower_altitude_uses_a_matching_threshold</code></td></tr>
+  <tr><td>takeoff body 多一個欄位</td><td><code>test_sends_exactly_the_bodies_the_drone_accepts</code></td></tr>
+  <tr><td>秒／毫秒判斷對調</td><td><code>test_records_version_fields_and_time_units</code></td></tr>
+  <tr><td><code>MEDIAN</code> 那一行</td><td><code>test_three_runs_report_timings_and_medians</code></td></tr>
+  <tr><td>連不上時訊息裡的 "unreachable"</td><td><code>test_unreachable_drone_fails_fast</code></td></tr>
+</table>
+<p>11 個 mutation，<b class="hl-ok">11 個都被抓到</b>。你可以自己做其中一個（見下面的「驗證」一節）。</p>
+<p>
+  code review 追加的那條「中途放棄仍要降落」測試，第一次寫出來時<b>在修正之前就綠了</b>：它在腳本退出後只等 0.5 秒就檢查，
+  而假 drone 要 2 秒才 arm，所以看到的是「還沒 arm」。這正是「沒紅過的測試不算數」要擋的：改成等到 takeoff 一定完成之後才檢查，它才紅。
+</p>
+
+<h2 id="smoke">收尾不留殘留：<code>smoke_health.sh</code></h2>
+<p>
+  「<code>scripts/dev.sh</code> 之後 <code>curl localhost:8100/health</code>」這條驗收如果用手打，就是一次性的；
+  依工作流程規則 5 把它寫成腳本：起後端、打 <code>/health</code>、收掉整個 process group、證明沒有 uvicorn 留下。
+  這裡連踩三個坑，修法都在腳本本體：
+</p>
+<pre class="code" data-src="scripts/smoke_health.sh"><code># What is left is judged by two facts, not by what command lines look like: any process
+# still in the backend's process group, and anything still listening on the port.
+# (Matching command lines missed uvicorn --reload's server child, which is the process
+# holding the port: `python -c "from multiprocessing.spawn import spawn_main…"`. And a
+# bare `pgrep -f &lt;pattern&gt;` also matches the shell that typed it.)
+leftovers() {
+<span class="hl">  if [[ -n ${PGID:-} ]]; then pgrep -a -g "$PGID" || true; fi</span>
+<span class="hl">  ss -ltnp "sport = :$PORT" 2&gt;/dev/null | tail -n +2</span>
+}
+…
+# The inner bash records its own pid before exec'ing, and that pid is the session and
+# group leader. ($! is not reliable: when the calling shell has job control on (set -m),
+# a background job gets its own process group, so setsid is already a group leader and
+# forks and exits -- $! then names a dead process.)
+<span class="hl">setsid bash -c 'echo $$ &gt;"$1"; exec scripts/dev.sh' _ "$LOG.pid" &gt;"$LOG" 2&gt;&amp;1 &lt;/dev/null &amp;</span>
+timeout 5 bash -c "until [[ -s '$LOG.pid' ]]; do sleep 0.05; done"
+PGID=$(cat "$LOG.pid")</code></pre>
+<p>
+  先講為什麼要收「整個 process group」。<code>dev.sh</code> 最後一行是 <code>exec uv run uvicorn …</code>：<code>exec</code> 用新程式取代目前的 shell，
+  pid 不變；但 <code>uv run</code> 會再生出真正跑 uvicorn 的 Python 子程序，<code>--reload</code> 還會再多一層。
+  只殺最上面那個 pid，底下的子程序可能活下來。<b>process group</b> 是一組一起收訊號的行程；
+  <code>setsid</code> 讓它後面的程式自成一個新的 session 與 group（group id＝它自己的 pid），
+  之後 <code>kill -- -$PGID</code>（pid 前面加負號）就是把訊號送給整組。
+  <code>bash -c '…' _ "$LOG.pid"</code> 裡的 <code>_</code> 只是佔住 <code>$0</code> 的位置，讓後面的檔名成為 <code>$1</code>；<code>$$</code> 是那個 bash 自己的 pid。
+</p>
+<p>
+  第一個坑：<b>原本以為</b> <code>setsid cmd &amp;</code> 之後的 <code>$!</code>（最後一個背景程序的 pid）就是新 group 的 leader。
+  實際上，當呼叫端的 shell <b>開著 job control</b>（<code>set -m</code>，互動 shell 通常是）時，每個背景 job 都會自成一個 group，
+  於是被丟到背景的 <code>setsid</code> 自己已經是 group leader；<code>setsid</code> 這時會 fork 一份再自己退出——
+  <code>$!</code> 指向一個死掉的 PID，<code>kill -- -$PGID</code> 拿到空字串，<b class="hl-bad">uvicorn 留在背景繼續佔著 8100</b>。
+  沒有 job control（<code>set +m</code>，一般腳本的預設）時 <code>$!</code> 其實是對的；兩種情況都實測過。
+  讓內層 bash 自己把 pid 寫進檔案，兩種情況都成立。
+  （這一段的成因，第一版寫成「非互動 shell 才會這樣」，剛好寫反了，是冷讀抓到的。）
+  第二個坑：用 <code>pgrep -f "uvicorn marine_backend"</code> 檢查殘留，會比對到<b>下這條 pgrep 的那個 shell 自己的命令列</b>，
+  於是明明乾淨也回報有殘留。
+</p>
+<p>
+  第三個坑是第二個的修法又漏了一塊。第一版改成「比對行程名稱再過濾參數」（<code>pgrep -ax uvicorn</code> 再找 <code>marine_backend.main:app</code>）。
+  但 <code>dev.sh</code> 的 process group 裡其實有 4 個行程：
+</p>
+<pre><code>    PID    PPID    PGID COMMAND
+ 897389       1  897389 uv run uvicorn marine_backend.main:app --port 8100 --reload
+ 897396  897389  897389 …/.venv/bin/python …/.venv/bin/uvicorn marine_backend.main:app --p…
+ 897397  897396  897389 …/.venv/bin/python -c from multiprocessing.resource_tracker import main;main(5)
+ 897398  897396  897389 …/.venv/bin/python -c from multiprocessing.spawn import spawn_main; spawn_main(…
+LISTEN 0      2048                     127.0.0.1:8100       0.0.0.0:*    users:(("python",pid=897398,fd=4),("uvicorn",pid=897396,fd=4))</code></pre>
+<p class="dimnote">（前四行是 <code>ps -o pid,ppid,pgid,args -g &lt;PGID&gt;</code>，最後一行是 <code>ss -ltnp</code>；兩者都只把過長的 venv 路徑與參數以 … 截短，其餘照原樣。）</p>
+<p>
+  <b class="hl-bad">真正佔著 8100 的是最後那個 <code>spawn_main</code> 子行程</b>，它的命令列裡沒有 <code>marine_backend</code>。
+  如果只剩它活著，舊的檢查會回報「乾淨」。現在改看兩個事實：這個 process group 裡還有沒有任何行程（<code>pgrep -g</code>），
+  以及這個 port 還有沒有人在 listen（<code>ss</code>）。<code>tests/test_smoke_health.py</code> 起一個真的後端（隨機 port，不碰 SITL），
+  只殺掉命令列比對得到的那兩個行程，確認檢查仍然報得出孤兒子行程；這條測試在修正前是紅的。這也是 PR 開出後 code review 抓到的。
+</p>
+
+<h2 id="modules">模組分工</h2>
+<pre class="diagram">tests/test_health.py ──TestClient──► marine_backend/main.py  ◄──uvicorn── scripts/dev.sh ◄── scripts/smoke_health.sh
+                                                                             ▲
+tests/test_smoke_health.py ──leftovers()──────────────────────────────────────┘                (起真的後端，不碰 SITL)
+
+tests/test_baseline_script.py ──subprocess──► scripts/baseline_drone_direct.sh ──HTTP──► tests/fake_drone.py   (pytest，不碰 SITL)
+                                              scripts/baseline_drone_direct.sh ──HTTP──► drone-1 :7070          (手動，真的會飛)
+                                                                   │
+                                                                   └── stdout 的 RUN／MEDIAN 行 ──► docs/baseline.md</pre>
+<p>
+  注意基線腳本和後端 <code>main.py</code> <b>完全沒有連線</b>——這一步刻意如此。
+  step 3 會加 <code>scripts/e2e_takeoff_land.sh</code>：同一套起降與計時，但指令改經由後端送出，量測仍然直接讀 drone。
+  兩支腳本的數字並排，就是規則 7 的對照。
+</p>
+
+<h2 id="verify">驗證：實測輸出逐行標注</h2>
+<h3 id="step0">第 0 步：起點</h3>
+<p>本書所有指令都假設你<b>在 repo 根目錄</b>。需要主機上已經有 <code>uv</code>、<code>curl</code>、<code>jq</code>；
+  還沒有 uv 的話，照它的官方文件（<a href="https://docs.astral.sh/uv/">docs.astral.sh/uv</a>）裝，本章沒有示範安裝。</p>
+<pre class="shell"><code>git clone https://github.com/poyilee1030/marine-backend-py.git
+cd marine-backend-py
+git switch step-1-skeleton</code></pre>
+<p>最後一行只在 PR #1 合併<b>之前</b>需要；合併後 main 上就有這一章的全部檔案，跳過它即可。</p>
+
+<h3 id="verify-unit">單元測試與 /health（不需要 SITL）</h3>
+<pre class="shell"><code>uv sync
+uv run pytest</code></pre>
+<pre><code><span class="dimline">-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html</span>
+======================== 12 passed, 1 warning in 22.25s ========================<span class="mk">1</span></code></pre>
+<ol class="notes">
+  <li>12 條全過（其中 smoke 那條會真的起一次後端，所以要二十秒上下）。那 1 個 warning 是 Starlette 1.7 對 <code>httpx</code> 的棄用提醒（要求改裝 <code>httpx2</code>），不是失敗；要不要換，排在 step 2 開工前決定。</li>
+</ol>
+<pre class="shell"><code>scripts/smoke_health.sh</code></pre>
+<pre><code>GET /health -&gt; {"ok":true}<span class="mk">1</span></code></pre>
+<ol class="notes">
+  <li>印出這行且 exit 0，代表三件事都成立：uvicorn 起得來、<code>/health</code> 回的是 <code>{"ok":true}</code>、收掉之後沒有任何 uvicorn 留下（有殘留時腳本會印 <code>LEFTOVER</code> 並以 1 結束）。如果 8100 已經被佔，它會直接說 <code>port 8100 is already in use</code>。</li>
+</ol>
+
+<h3 id="verify-mutation">自己做一次 mutation</h3>
+<p>把「拒絕訊息裡帶 drone 的 <code>detail</code>」這個行為從副本拿掉，然後讓測試去跑副本：</p>
+<pre class="shell"><code>sed 's/die "takeoff refused: HTTP $CODE $BODY"/die "takeoff refused: HTTP $CODE"/' scripts/baseline_drone_direct.sh &gt; /tmp/mut.sh
+BASELINE_SCRIPT=/tmp/mut.sh uv run pytest tests/test_baseline_script.py -q</code></pre>
+<pre><code>FAILED tests/test_baseline_script.py::test_refused_takeoff_prints_the_drones_detail<span class="mk">1</span>
+1 failed, 9 passed in 20.51s</code></pre>
+<ol class="notes">
+  <li>剛好是負責那個行為的測試變紅，其他 9 條照過。如果你看到 <code>10 passed</code>，代表 sed 沒有換到東西（例如腳本那一行已經改過），先 <code>diff scripts/baseline_drone_direct.sh /tmp/mut.sh</code> 確認副本真的不同。</li>
+</ol>
+
+<h3 id="verify-sitl">對 SITL 跑基線（模擬機會真的起降）</h3>
+<p>
+  這一段會讓 <b>SITL 裡的模擬機</b>起飛、降落三次，不涉及實機。前置條件：drone-1 的 SITL 容器已經在跑
+  （本章沒有重建容器；建法見 <code>ROADMAP.md</code> 的「SITL 環境」一節）。
+  drone-N 的位址是 <code>172.18.10.(N+1)</code>，這是 marlin-drone 的 <code>create_dockers.sh</code> 的預設；你的環境不一樣的話，這樣查：
+</p>
+<pre class="shell"><code>docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' drone-1</code></pre>
+<pre><code>172.18.10.2</code></pre>
+<p>下面的指令都用這個位址；你的不同就換掉。先確認 coordinator 在：</p>
+<pre class="shell"><code>curl -s http://172.18.10.2:7070/version</code></pre>
+<pre><code>{"version":"1.8.4"}</code></pre>
+<p>
+  還要確認<b>沒有其他 GCS</b>（marlin 的 dashboard、gcs-server-v1）正在對同一台下指令（工作流程規則 9）。
+  撰寫時是這樣確認的：主機上沒有任何連到 drone-1 的 TCP 連線。
+</p>
+<pre class="shell"><code>ss -tn | grep 172.18.10.2 || echo none</code></pre>
+<pre><code>none</code></pre>
+<p>這只看得到<b>主機上</b>的連線；如果別的 GCS 跑在同一個 docker 網路的其他容器裡，這條看不到，要另外確認。</p>
+<pre class="shell"><code>scripts/baseline_drone_direct.sh http://172.18.10.2:7070</code></pre>
+<p>下面是寫進 <code>docs/baseline.md</code> 的那一次（2026-09-25 19:15），stdout 與 stderr 交錯顯示；<code>FIELDS</code> 一行很長，已截斷：</p>
+<pre><code>VERSION 1.8.4<span class="mk">1</span>
+FIELDS cur_task_id,session_id,lat,lng,alt_rel,alt_asl,yaw,pitch,roll,ground_track,… (45 個)<span class="mk">2</span>
+UNITS update_time=s timestamp=ms<span class="mk">3</span>
+<span class="dimline">[19:15:22] sample: update_time=1790334922 timestamp=1790334922905 host_now=1790334922.907741184</span>
+<span class="dimline">[19:15:23] run 1: POST /api/takeoff altitude=10</span>
+<span class="dimline">[19:15:28] run 1: alt_rel=9.883 after 5.80544s (task 37ec8c01d9d3: succeeded)</span>
+<span class="dimline">[19:15:28] run 1: POST /api/land</span>
+<span class="dimline">[19:15:52] run 1: disarmed after 23.4818s (task 76c50f002057: succeeded)</span>
+RUN 1 takeoff_s=5.81 land_s=23.48 takeoff_post_s=0.03 takeoff_task=succeeded land_task=succeeded<span class="mk">4</span>
+<span class="dimline">[19:15:52] is_ready_to_arm=false in flight_mode=20; switching to GUIDED</span><span class="mk">5</span>
+<span class="dimline">…</span>
+RUN 2 takeoff_s=5.28 land_s=22.96 takeoff_post_s=0.03 takeoff_task=succeeded land_task=succeeded
+RUN 3 takeoff_s=5.28 land_s=22.97 takeoff_post_s=0.03 takeoff_task=succeeded land_task=succeeded
+MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
+<ol class="notes">
+  <li>coordinator 版本，和 ROADMAP 規劃時讀到的一致。</li>
+  <li><code>/get_drone_state</code> 的完整欄位清單，全文在 <code>docs/baseline.md</code>。step 2 要從這裡挑欄位。</li>
+  <li>G2 確認：<code>update_time</code> 是秒、<code>timestamp</code> 是毫秒。下一行灰字的原始值可以自己驗算：<code>1790334922</code> 對主機的 <code>1790334922.9</code>。</li>
+  <li>第一輪開始時 drone 已經在 GUIDED 且 ready（前面手動切過），所以沒有切模式這一行。<code>takeoff_post_s=0.03</code>：POST 幾乎立刻回，真正花時間的是爬升。</li>
+  <li>第二輪開始前，飛機停在 QLAND（20），<code>is_ready_to_arm=false</code>——正是圖 1.2 的那個迴圈。腳本切 GUIDED 後繼續。</li>
+  <li>中位數：起飛 5.28 s、降落 22.97 s。依規則 7，回歸容差取「±30%」和「±5 s」較寬者：起飛 0.28–10.28 s、降落 16.08–29.86 s。</li>
+</ol>
+<div class="note">
+  <b>你跑出來的數字會不一樣，這是正常的。</b>SITL 不是決定性的，每次差個零點幾秒很常見；
+  而且輪詢間隔是 0.5 s，每個數字本來就帶著約 ±0.5 s 的量化誤差。
+  第一輪會不會出現 <code>switching to GUIDED</code>，取決於你開始時 drone 停在哪個模式。
+  只要中位數落在上面的容差範圍內，就和基線一致。撰寫本章時照上面的指令從全新 clone 重跑過兩次：
+  2026-09-25 20:12 三輪都先切了 GUIDED，中位數起飛 5.80 s、降落 24.01 s；
+  22:38（code review 修正之後）中位數起飛 5.80 s、降落 23.49 s，而且<b>第 2 輪沒有切 GUIDED</b>——
+  那一刻 <code>is_ready_to_arm</code> 讀到的是 true。推測是剛 disarm 時這個旗標還停在飛行中的值（飛控大約每秒才更新一次），
+  這一點沒有實測驗證；無論哪一種，takeoff 都照樣會先切 GUIDED。兩次都在容差內。如果看到 <code>PRECONDITION FAILED: is_armed=true</code>，
+  代表有東西正在飛這台 drone，腳本刻意不碰它。
+</div>
+<pre class="shell"><code>pgrep -af '^bash scripts/baseline_drone_direct' || echo none</code></pre>
+<pre><code>none</code></pre>
+<p>跑完之後沒有殘留的腳本程序。樣式開頭的 <code>^</code> 是必要的，理由同 <a href="#smoke">smoke_health</a> 那一節的第二個坑。
+  腳本的第一行是 <code>#!/usr/bin/env bash</code>，所以它執行時的命令列以 <code>bash scripts/…</code> 開頭；撰寫時在腳本跑到一半時用同一條指令查過，確實抓得到。</p>
+
+<h3 id="baseline-chart">三輪結果與回歸容差</h3>
+<figure class="fig">
+<svg viewBox="0 0 900 250" role="img" aria-label="三輪起飛與降落耗時的長條圖，疊在回歸容差區間上">
+  <!-- scale: x = 170 + t * 21.5 (0..32 s) -->
+  <rect x="176" y="30" width="215" height="76" class="band" fill="var(--band)"/>
+  <rect x="516" y="122" width="296" height="76" fill="var(--band)"/>
+  <text class="s-sm" x="283" y="24" text-anchor="middle">起飛容差 0.28–10.28 s</text>
+  <text class="s-sm" x="664" y="116" text-anchor="middle">降落容差 16.08–29.86 s</text>
+
+  <text class="s-lbl" x="160" y="52" text-anchor="end">起飛 run 1</text>
+  <rect x="170" y="40" width="125" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="301" y="53">5.81</text>
+  <text class="s-lbl" x="160" y="76" text-anchor="end">起飛 run 2</text>
+  <rect x="170" y="64" width="114" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="290" y="77">5.28</text>
+  <text class="s-lbl" x="160" y="100" text-anchor="end">起飛 run 3</text>
+  <rect x="170" y="88" width="114" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="290" y="101">5.28</text>
+
+  <text class="s-lbl" x="160" y="144" text-anchor="end">降落 run 1</text>
+  <rect x="170" y="132" width="505" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="681" y="145">23.48</text>
+  <text class="s-lbl" x="160" y="168" text-anchor="end">降落 run 2</text>
+  <rect x="170" y="156" width="494" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="670" y="169">22.96</text>
+  <text class="s-lbl" x="160" y="192" text-anchor="end">降落 run 3</text>
+  <rect x="170" y="180" width="494" height="16" rx="3" fill="var(--c-coord)"/>
+  <text class="s-mono" x="670" y="193">22.97</text>
+
+  <line x1="170" y1="210" x2="858" y2="210" stroke="var(--line)" stroke-width="1"/>
+  <text class="s-mono" x="170" y="228" text-anchor="middle">0</text>
+  <text class="s-mono" x="277" y="228" text-anchor="middle">5</text>
+  <text class="s-mono" x="385" y="228" text-anchor="middle">10</text>
+  <text class="s-mono" x="492" y="228" text-anchor="middle">15</text>
+  <text class="s-mono" x="600" y="228" text-anchor="middle">20</text>
+  <text class="s-mono" x="707" y="228" text-anchor="middle">25</text>
+  <text class="s-mono" x="815" y="228" text-anchor="middle">30</text>
+  <text class="s-sm" x="858" y="244" text-anchor="end">秒（量自 drone 的 /get_drone_state）</text>
+</svg>
+<figcaption>圖 1.3 — 三輪彼此只差約 0.5 s，和輪詢間隔一樣大；以 3 個樣本看不出正常的變異範圍，所以這一步<b>沒有</b>收緊規則 7 的容差，等 step 3 多 3 輪再看。</figcaption>
+</figure>
+
+<h2 id="pitfalls">常見錯誤</h2>
+<div class="pits">
+  <div class="pit"><h4>把 <code>is_ready_to_arm=false</code> 當成「不能飛」</h4><dl>
+    <dt>症狀</dt><dd>剛降落完的 drone 幾乎總是顯示 not ready。</dd>
+    <dt>後果</dt><dd>前置檢查擋掉一台其實能飛的飛機；或 UI 把起飛按鈕灰掉。</dd>
+    <dt>正解</dt><dd class="fix">它是飛控的 pre-arm 位元，QLAND／QRTL／RTL 下必定 false。先切 GUIDED 再看。</dd></dl></div>
+  <div class="pit"><h4>把 takeoff 的 200 當成「飛到了」</h4><dl>
+    <dt>症狀</dt><dd>POST 0.03 s 就回 200，飛機才剛離地。</dd>
+    <dt>後果</dt><dd>計時從回應算起、或以回應為準宣告完成，數字與事實都錯（G6）。</dd>
+    <dt>正解</dt><dd class="fix">碼錶停在 drone 自己回報的 <code>alt_rel ≥ 9.5</code>。</dd></dl></div>
+  <div class="pit"><h4>拿 <code>timestamp</code> 算遙測新鮮度</h4><dl>
+    <dt>症狀</dt><dd>斷線的 drone 看起來一直很新鮮，或新鮮的看起來過期很久。</dd>
+    <dt>後果</dt><dd>毫秒當秒用，差 1000 倍（G2）。</dd>
+    <dt>正解</dt><dd class="fix">只用 <code>update_time</code>（秒）；<code>timestamp</code> 是回應產生的時間，而且是毫秒。</dd></dl></div>
+  <div class="pit"><h4>ROS 的 <code>PYTHONPATH</code> 漏進 venv</h4><dl>
+    <dt>症狀</dt><dd><code>uv run pytest</code> 在收集之前就 <code>ModuleNotFoundError: No module named 'yaml'</code>，traceback 指向 <code>/opt/ros/humble</code>。</dd>
+    <dt>後果</dt><dd>一條測試都跑不了，而且看起來像是自己的程式壞了。</dd>
+    <dt>正解</dt><dd class="fix"><code>addopts = "--disable-plugin-autoload"</code>；會跑 Python 的腳本先 <code>unset PYTHONPATH</code>。</dd></dl></div>
+  <div class="pit"><h4>在 <code>$(…)</code> 裡呼叫會 <code>die</code> 的函式</h4><dl>
+    <dt>症狀</dt><dd>請求失敗了，腳本卻拿著空字串繼續跑。</dd>
+    <dt>後果</dt><dd>失敗被吞掉，之後的錯誤訊息指向完全不相干的地方。</dd>
+    <dt>正解</dt><dd class="fix">讓函式寫全域變數（<code>CODE</code>／<code>BODY</code>），在主 shell 呼叫。</dd></dl></div>
+  <div class="pit"><h4><code>setsid cmd &amp;</code> 後用 <code>$!</code> 收程序</h4><dl>
+    <dt>症狀</dt><dd><code>kill: -: arguments must be process or job IDs</code>，8100 依然被佔。</dd>
+    <dt>後果</dt><dd>uvicorn 殘留在背景，下一次啟動撞 port。</dd>
+    <dt>正解</dt><dd class="fix">讓內層 bash 先把自己的 pid（＝group id）寫進檔案再 <code>exec</code>。</dd></dl></div>
+  <div class="pit"><h4>用 <code>pgrep -f</code> 查殘留</h4><dl>
+    <dt>症狀</dt><dd>明明收乾淨了，檢查卻說還有殘留。</dd>
+    <dt>後果</dt><dd>要嘛誤判失敗，要嘛久了大家學會忽略這個檢查。</dd>
+    <dt>正解</dt><dd class="fix">不要用命令列判斷：看 process group 還有沒有行程（<code>pgrep -g</code>）、port 還有沒有人 listen（<code>ss</code>）。只能用命令列時，把樣式錨定在開頭（<code>^bash scripts/…</code>）。</dd></dl></div>
+  <div class="pit"><h4>「現在沒 armed」就不降落</h4><dl>
+    <dt>症狀</dt><dd>takeoff 請求逾時或被 Ctrl-C 打斷，腳本檢查一次、沒 armed，就退出了。</dd>
+    <dt>後果</dt><dd>drone 那端的 takeoff 其實還在處理，一秒後 arm 並爬升，沒有人在看。</dd>
+    <dt>正解</dt><dd class="fix">放棄之後持續盯一段時間，只要在降落以外的模式 armed 就送 land。</dd></dl></div>
+  <div class="pit"><h4>測試只因「檔案不存在」紅過</h4><dl>
+    <dt>症狀</dt><dd>先寫測試、看它紅、寫實作、看它綠——每一步都做了。</dd>
+    <dt>後果</dt><dd>不知道哪一條測試其實什麼都沒守住。</dd>
+    <dt>正解</dt><dd class="fix">對實作的副本逐一拿掉行為（mutation），確認每一條都有自己會紅的時候。</dd></dl></div>
+</div>
+
+<h2 id="summary">小結與下一步</h2>
+<ul>
+  <li>repo 能 <code>uv sync</code>、能 <code>uv run pytest</code>（12 條）、能起後端並乾淨收掉。<code>CLAUDE.md</code> 是給 agent 或新 session 的單一入口（怎麼裝、怎麼測、SITL 前置條件、PR 流程），<code>README.md</code> 是給人看的簡介與進度。</li>
+  <li>drone 今天的行為存證在 <code>docs/baseline.md</code>：版本 1.8.4、45 個欄位、<code>update_time</code> 秒／<code>timestamp</code> 毫秒、起飛 5.28 s、降落 22.97 s。</li>
+  <li>三個發現已排進後面的 step：<code>is_ready_to_arm</code> 跟著模式走（step 2 的 UI 不能把它當「不能飛」）；
+      step 3 原本「剛降落完起飛會被拒」的驗收前提不成立；takeoff POST 只要 0.03 s（step 3 的轉發逾時要依此重定）。</li>
+</ul>
+<p>
+  <b>目前的限制</b>，也就是 step 2 的預告：後端除了 <code>/health</code> 什麼都不會——它還看不到任何一台 drone。
+  step 2 會加 <code>drones.toml</code> 與 <code>GET /api/drones</code>，並行抓每台 drone 的狀態，
+  把「HTTP 連得上」（<code>online</code>）和「遙測是新的」（<code>telemetry_age_s</code>）分開回報。
+</p>
+
+<h3 id="quiz">自我測驗</h3>
+<details><summary>1. drone 剛降落完，<code>is_ready_to_arm=false</code>。這時送 <code>POST /api/takeoff</code> 會怎樣？為什麼？</summary>
+  <p>會起飛。降落把飛機留在 QLAND，而 ArduPlane 的 QLAND 在 pre-arm 階段一律回「mode not armable」，所以這個位元是 false；
+  但 takeoff 會先切 GUIDED（pre-arm 通過）再 arm。false 反映的是「目前的模式」，不是飛機的健康。</p></details>
+<details><summary>2. <code>takeoff_s</code> 從哪一刻算到哪一刻？為什麼不在 takeoff 回 200 時停錶？</summary>
+  <p>從送出 POST 前一刻，到 drone 自己的 <code>/get_drone_state</code> 報出 <code>alt_rel ≥ 9.5</code>。200 只代表派發成功（G6），實測 0.03 s 就回，那時飛機才剛開始爬升。</p></details>
+<details><summary>3. 如果把 <code>req</code> 改成 <code>echo "$BODY"</code>，呼叫端寫 <code>STATE=$(req GET /get_drone_state)</code>，drone 連不上時會發生什麼？</summary>
+  <p><code>die</code> 在 <code>$(…)</code> 的子 shell 裡執行，只結束子 shell；主腳本拿到空的 <code>STATE</code> 繼續跑，錯誤訊息會出現在後面不相干的 <code>jq</code> 那一行。（嚴格說，<code>set -e</code> 下賦值會帶著子 shell 的結束碼，腳本也可能在那裡停住，但訊息已經被吞掉了。）</p></details>
+<details><summary>4. 為什麼最初的 8 條腳本測試都紅過了，還要做 mutation？</summary>
+  <p>它們第一次紅都是因為腳本不存在（exit 127）。那只證明「沒有腳本時會紅」，不證明每一條守得住它宣稱的那個行為。mutation 一次拿掉一個行為，才看得出每條測試各自會在什麼時候紅。</p></details>
+<details><summary>5. 你跑出來的起飛時間是 6.9 s，基線中位數是 5.28 s。算不算回歸？</summary>
+  <p>不算。規則 7 的容差取「±30%（±1.58 s）」與「±5 s」較寬者，也就是 ±5 s，範圍 0.28–10.28 s；而且規則 7 看的是 3 次的中位數，不是單次。</p></details>
+
+<nav class="pagenav bottom" aria-label="章節導覽">
+  <span class="dim">← 這是第一章</span>
+  <a href="index.html">目錄</a>
+  <span class="dim">Step 2（尚未撰寫）→</span>
+</nav>
+</div>
+<script>
+function toggleTheme() {
+  var r = document.documentElement;
+  var dark = r.dataset.theme ? r.dataset.theme === 'dark'
+    : !window.matchMedia('(prefers-color-scheme: light)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+}
+</script>
+</body>
+</html>

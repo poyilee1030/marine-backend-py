@@ -1,0 +1,25 @@
+[project]
+name = "marine-backend-py"
+version = "0.1.0"
+description = "Minimal FastAPI backend between marine-frontend and marlin-drone coordinators, for manual testing"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "uvicorn>=0.54.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+# ~/.bashrc sources ROS Humble, whose PYTHONPATH (py3.10) injects launch_testing
+# as a pytest entry-point plugin and crashes collection. We use no third-party plugins.
+addopts = "--disable-plugin-autoload"

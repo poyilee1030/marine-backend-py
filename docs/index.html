@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>marine-backend-py 教材 · 目錄</title>
+<style>
+:root {
+  --bg: #0f1419; --panel: #161d26; --panel2: #1c2530; --fg: #e6edf3; --muted: #9aa7b4;
+  --line: #2b3642; --accent: #6aa6ff; --ok: #4cc38a; --bad: #f07178; --warn: #e5b567;
+  --c-script: #6aa6ff; --c-coord: #4cc38a; --c-fc: #f0a35c; --c-backend: #b58cff;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fbfcfd; --panel: #ffffff; --panel2: #f0f3f7; --fg: #1d2630; --muted: #5b6875;
+    --line: #d5dde5; --accent: #2f6fd6; --ok: #1f8f5a; --bad: #c9383f; --warn: #a86f00;
+    --c-script: #2f6fd6; --c-coord: #1f8f5a; --c-fc: #c56a14; --c-backend: #7b4fd1;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #fbfcfd; --panel: #ffffff; --panel2: #f0f3f7; --fg: #1d2630; --muted: #5b6875;
+  --line: #d5dde5; --accent: #2f6fd6; --ok: #1f8f5a; --bad: #c9383f; --warn: #a86f00;
+  --c-script: #2f6fd6; --c-coord: #1f8f5a; --c-fc: #c56a14; --c-backend: #7b4fd1;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.75 system-ui, -apple-system, "Segoe UI", "Noto Sans TC", "PingFang TC", sans-serif; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 20px 64px; }
+a { color: var(--accent); }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; background: var(--panel2);
+  padding: 1px 5px; border-radius: 4px; }
+b.hl-ok  { color: var(--ok); }
+b.hl-bad { color: var(--bad); }
+b.hl-key { color: var(--accent); }
+h1 { font-size: 2rem; margin: 40px 0 8px; line-height: 1.3; }
+h2 { margin: 44px 0 12px; font-size: 1.35rem; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.lead { font-size: 1.08rem; }
+.top { display: flex; justify-content: flex-end; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.theme-btn { font: inherit; font-size: .85rem; color: var(--muted); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+pre { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px;
+  overflow-x: auto; font: 13px/1.6 ui-monospace, Menlo, Consolas, monospace; }
+pre.shell { border-left: 3px solid var(--accent); position: relative; padding-top: 28px; }
+pre.shell::before { content: "貼上執行"; position: absolute; top: 6px; left: 14px; font-size: 11px;
+  font-family: system-ui, sans-serif; color: var(--accent); letter-spacing: .05em; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: .88rem; color: var(--muted);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; margin: 16px 0; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card { display: block; text-decoration: none; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+a.card:hover { border-color: var(--accent); }
+.card .badge { font-size: .75rem; font-weight: 700; letter-spacing: .06em; color: var(--bg);
+  background: var(--accent); padding: 1px 8px; border-radius: 999px; }
+.card.todo { color: var(--muted); border-style: dashed; }
+.card.todo .badge { background: var(--muted); }
+.card h3 { margin: 8px 0 4px; font-size: 1.05rem; }
+.card p { margin: 0; font-size: .92rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><button class="theme-btn" type="button" onclick="toggleTheme()">切換深／淺</button></div>
+
+<h1>marine-backend-py：隨開發長出來的教材</h1>
+<p class="lead">
+  marine-backend-py 是一個極簡的 FastAPI 後端，給<b>開發 drone 容器的人</b>在功能做完後<b>手動測試</b>用。
+  它站在瀏覽器（marine-frontend）和每台 drone 的 coordinator HTTP API 中間，讓你在網頁上看到 drone、讓它起飛、讓它降落。
+  它<b class="hl-bad">不是</b>正式的地面站（GCS）：沒有資料庫、沒有認證、不接實機。
+</p>
+<pre>瀏覽器 (marine-frontend)
+   │  GET /api/drones                     ← 每 1 秒輪詢
+   │  POST /api/drones/{name}/takeoff | land
+   ▼
+marine-backend-py  :8100                   ← 本 repo
+   │  GET  /get_drone_state
+   │  POST /api/takeoff | /api/land
+   ▼
+drone-N coordinator :7070  →  飛控（ArduPlane SITL）</pre>
+<p>
+  專案照 <code>ROADMAP.md</code> 一步一步做，<b class="hl-key">一個 step＝一個 PR＝一章</b>。
+  每一章由寫那段程式的同一個人（同一個 session）在同一個 PR 裡寫成，所以章裡的輸出與數字都是實跑出來的，
+  踩過的坑也是真的踩過的。
+</p>
+
+<h2>名詞</h2>
+<ul>
+  <li><b>coordinator</b>：每個 drone 容器裡跑的 HTTP 服務（port 7070，來自 marlin-drone repo），把 HTTP 請求翻成送給飛控的 MAVLink 指令。</li>
+  <li><b>SITL</b>（Software In The Loop）：在電腦上模擬的飛控與機體。這裡用 ArduPlane 的 quadplane（垂直起降）模型，每台 drone 一個 docker 容器；drone-1 的位址是 <code>172.18.10.2</code>。</li>
+  <li><b>基線（baseline）</b>：在改動之前先量下來的數字，存在 <code>docs/baseline.md</code>，之後每一步都拿來對照。</li>
+</ul>
+
+<h2>怎麼讀、怎麼跑</h2>
+<p>每一章都有「驗證」一節，裡面標著 <b>貼上執行</b> 的區塊是給你跑的指令，全部假設你<b>站在 repo 根目錄</b>：</p>
+<pre class="shell"><code>git clone https://github.com/poyilee1030/marine-backend-py.git
+cd marine-backend-py</code></pre>
+<p>需要主機上有 <code>uv</code>、<code>curl</code>、<code>jq</code>。會真的讓 drone 起飛的指令另外需要 SITL 在跑，章裡會明講。</p>
+<div class="legend" aria-label="全書色彩代表的執行者">
+  <span><i style="background:var(--c-script)"></i>本 repo 的腳本與測試</span>
+  <span><i style="background:var(--c-coord)"></i>drone 的 coordinator（:7070）</span>
+  <span><i style="background:var(--c-fc)"></i>飛控（ArduPlane SITL）</span>
+  <span><i style="background:var(--c-backend)"></i>本後端（:8100）</span>
+</div>
+
+<h2>章節</h2>
+<div class="cards">
+  <a class="card" href="step01.html">
+    <span class="badge">STEP 1</span>
+    <h3>骨架與 drone API 基線</h3>
+    <p>uv 專案、<code>/health</code>、繞過後端直接量 drone：欄位、時間單位、起飛 5.28 s／降落 22.97 s；<code>is_ready_to_arm</code> 為什麼剛降落完幾乎總是 false。</p>
+  </a>
+  <div class="card todo">
+    <span class="badge">STEP 2</span>
+    <h3>GET /api/drones：drone 清單與即時狀態</h3>
+    <p>尚未撰寫。</p>
+  </div>
+  <div class="card todo">
+    <span class="badge">STEP 3</span>
+    <h3>takeoff／land／task 轉發</h3>
+    <p>尚未撰寫。</p>
+  </div>
+</div>
+</div>
+<script>
+function toggleTheme() {
+  var r = document.documentElement;
+  var dark = r.dataset.theme ? r.dataset.theme === 'dark'
+    : !window.matchMedia('(prefers-color-scheme: light)').matches;
+  r.dataset.theme = dark ? 'light' : 'dark';
+}
+</script>
+</body>
+</html>

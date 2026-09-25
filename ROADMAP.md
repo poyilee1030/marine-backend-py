@@ -44,6 +44,9 @@ drone-N coordinator :7070  →  ArduPlane SITL
 | drone 側 | marlin-drone coordinator `/version` = **1.8.4** | 對 drone-1 實際 `curl` |
 | SITL | `marlin-drone/multiple_sitl/create_dockers.sh`；網段 `drone-network` 172.18.10.0/24；drone-N = `172.18.10.(N+1)` | 讀 `create_dockers.sh`；drone-1 = 172.18.10.2 以 `docker inspect` 實查 |
 | Port | 後端 **8100**（主機上 7070/7071/8001/8080/9000/5432 已被佔） | `ss -ltn` |
+| 飛控韌體 | ArduPlane **4.6.3**（drone-1 容器 `/root/ardupilot` `3fc7011`） | step-1 實查 |
+| 腳本工具 | curl、jq 1.6、`timeout`、`setsid` | step-1 實查 |
+| 主機 shell | `~/.bashrc` source ROS Humble → `PYTHONPATH` 指向 3.10 site-packages | step-1 踩坑，見 `docs/baseline.md` |
 
 新增任何相依時同步記錄版本；精確版本由 `uv.lock` 釘死。
 
@@ -68,6 +71,16 @@ drone-N coordinator :7070  →  ArduPlane SITL
    保留後端的理由：(a) 前端只需要知道一個位址，drone 清單、彙整與錯誤映射集中在一處；
    (b) 之後的階段（記錄、回放、同時操作多台）本來就該放這裡。
    若哪天後端反而成了負擔，砍掉的成本很低：前端的 fetch URL 改指 drone 位址即可。
+7. **起飛前置條件：先切 GUIDED，再要求 `is_ready_to_arm == true`。**（step-1 裁決）
+   `is_ready_to_arm` 是飛控自己的 pre-arm 位元，ArduPlane 4.6.3 在 QLAND／QRTL／RTL 下
+   **一律是 false**（"mode not armable"），而我們自己的降落就停在 QLAND（剛 disarm 的一瞬間偶爾還讀到舊的 true，
+   見 `docs/baseline.md` step-1 code review 一節）。考慮過的替代：
+   (a) 把這些模式視為可接受；(b) 不檢查、交給 takeoff 的 409。都沒採用——維持
+   「前置條件不成立就大聲失敗」，改由 `POST /api/set-mode {"mode":"GUIDED"}` 先把飛機放進
+   pre-arm 會通過的模式，實測 1 s 內變 true。已 arm 的飛機一律不碰（別人在飛）。
+8. **pytest 關掉 plugin 自動載入**（`addopts = "--disable-plugin-autoload"`），腳本裡
+   `unset PYTHONPATH`。原因：主機的 ROS Humble `PYTHONPATH` 會讓 pytest 載入 `launch_testing`
+   然後崩潰。本專案不依賴任何第三方 pytest plugin；要加的話改成在 `addopts` 用 `-p` 明列。
 
 ---
 
@@ -98,7 +111,7 @@ drone-N coordinator :7070  →  ArduPlane SITL
 | G4 | `flight_mode` 是 ArduPlane 的**整數** custom mode（實測 21 = QRTL） | 人看不懂 | step-2：加上 `flight_mode_name`；對照表來源為 pymavlink `mode_mapping_apm`（與 drone 的 `vehicle_caps.py` 同源） |
 | G5 | GPS fix 之前 `lat`/`lng` 可能是 0 | marker 畫到非洲外海 | step-2：`gps_fix_type` 原樣帶出；畫不畫由前端決定 |
 | G6 | **takeoff 回 200 只代表「已派發」**，不代表「到達高度」。真正的結果在 `GET /tasks/{task_id}`（pending/running/succeeded/failed/…） | UI 說「完成」其實沒有 | step-3：轉發 `/tasks/{id}`；驗收以 drone 的 `alt_rel` 為準 |
-| G7 | `is_ready_to_arm=false` 時 takeoff 回 409/504。**規劃當下實讀 drone-1 就是 `is_ready_to_arm=false`**（mode QRTL） | 按了起飛沒反應 | step-3：狀態碼與 `detail` 原樣轉發；step-1：基線腳本先檢查前置條件，不滿足就大聲失敗 |
+| G7 | `is_ready_to_arm=false` 時 takeoff 回 409/504。**規劃當下實讀 drone-1 就是 `is_ready_to_arm=false`**（mode QRTL）。**step-1 修正**：它隨模式而變，QLAND／QRTL／RTL 下必定 false，但 takeoff 會先切 GUIDED，所以照樣飛得起來（見選型決策 7） | 按了起飛沒反應；或反過來，把可以飛的飛機誤判成不能飛 | step-3：狀態碼與 `detail` 原樣轉發；step-1：基線腳本先切 GUIDED 再檢查前置條件，不滿足就大聲失敗；step-2：UI 不可把 `is_ready_to_arm=false` 直接顯示成「不能起飛」 |
 | G8 | 高度語意：`alt_rel` 是離 home 高度、`alt_asl` 是海拔；takeoff 的 `altitude` 是離 home 高度 | 混用會差一個 home 海拔 | 第一階段只用 `alt_rel` |
 | G9 | 若 marlin 的 gcs-server-v1／dashboard 也連著同一台 drone，兩個 GCS 都能下指令 | 兩邊的指令互相覆蓋 | 第一階段不處理；寫進工作流程規則 9「同一時間只有一個 GCS 下指令」 |
 | G10 | 實機上 Jetson 的時鐘可能和主機不同 | `telemetry_age_s` 算錯 | SITL 不會發生（容器與主機共用時鐘）；實機進來時再處理 |
@@ -113,6 +126,11 @@ drone-N coordinator :7070  →  ArduPlane SITL
    - 驗收證據貼在 PR 描述：指令輸出、數字、時間戳。
    - 在 `docs/baseline.md` 最後面追加本 step 的一段。
    - ROADMAP 裡本 step 打勾。
+   - **本 step 的教學章 `docs/stepNN.html`**（寫 code 的同一個 session、同一個 PR；
+     `incremental-html-textbook` skill），並在 `docs/index.html` 加卡片、前一章補上 next 連結。
+     `python3 scripts/check_book.py docs` 全過（死鏈、導覽鏈、SVG 契約、程式碼節錄逐字一致、
+     測試條數用 pytest 實數），開 PR 前對**這一頁**跑 `cold-read`，回報逐條回核後才改。
+   - 動到教材有引用的檔案時，同步那幾章的節錄與數字（`check_book.py` 的節錄檢查會紅）。
 3. **合併前 self-review，發現項分流。** 本 step 範圍內的當場修並重驗：腳本缺陷、
    metadata 不一致、靜默失敗路徑。行為層級的改動排成後續 step——基線 PR 與行為修改 PR
    不混在一起。
@@ -130,6 +148,12 @@ drone-N coordinator :7070  →  ArduPlane SITL
    SITL 只給 `scripts/` 底下的腳本用。
 9. **只在刻意起飛的 drone 上測。** SITL 起飛前確認沒有其他 GCS
    （marlin dashboard／gcs-server-v1）正對同一台 drone 下指令（G9）。
+10. **先寫測試，再寫程式。** 每個行為先寫一條會紅的測試，親眼看它因為「功能還不存在」
+    而失敗（不是因為 import 錯、環境壞掉），再寫最少的程式讓它變綠。
+    規格已經寫死的（狀態碼、欄位、ROADMAP 的驗收標準）一律先寫；門檻要靠實測才知道的
+    （容差、逾時），先把性質寫成測試，常數留待實測後填入——仍然先紅後綠。
+    測試要從**對方的規格或原始碼**長出來（例如 drone 的 `drone_api_server.py`），
+    不照自己的實作抄，否則會抄到同一個漏洞。沒紅過的測試不算數。
 
 **SITL 環境（e2e 腳本的前置條件）：**
 
@@ -164,25 +188,32 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 **目標：** repo 可安裝、可啟動、可測試；drone API 今天的行為特性化存證在 `docs/baseline.md`。
 
 **內容**
-- [ ] `uv init`、`uv python pin 3.12`、`uv add fastapi uvicorn httpx`、`uv add --dev pytest`
-- [ ] `marine_backend/main.py`：FastAPI app，只有 `GET /health → {"ok": true}`
-- [ ] `tests/test_health.py`（TestClient）
-- [ ] `scripts/dev.sh`：`uv run uvicorn marine_backend.main:app --port 8100 --reload`
-- [ ] `scripts/baseline_drone_direct.sh <drone_url>`：**繞過本後端，直接打 drone**：
+- [x] `uv init`、`uv python pin 3.12`、`uv add fastapi uvicorn httpx`、`uv add --dev pytest`
+- [x] `marine_backend/main.py`：FastAPI app，只有 `GET /health → {"ok": true}`
+- [x] `tests/test_health.py`（TestClient）
+- [x] `scripts/dev.sh`：`uv run uvicorn marine_backend.main:app --port 8100 --reload`
+- [x] `scripts/baseline_drone_direct.sh <drone_url>`：**繞過本後端，直接打 drone**：
   1. `GET /version`、`GET /get_drone_state` → 記錄版本、完整欄位清單、
      `update_time` 與 `timestamp` 的實際單位
-  2. 前置條件：`is_ready_to_arm == true`，否則**大聲失敗**
+  2. 前置條件：`is_armed == false`（否則不碰）；`is_ready_to_arm` 不是 true 就先
+     `POST /api/set-mode GUIDED`（選型決策 7），之後 `is_ready_to_arm == true`，否則**大聲失敗**
      （印出當下的 `flight_mode`/`gps_fix_type` 並 exit 1）
   3. `POST /api/takeoff {"altitude":10}` → 每 0.5 s 輪詢狀態直到 `alt_rel ≥ 9.5`，
      逾時 120 s（drone 自己的 `TAKEOFF_TIMEOUT`）
   4. `POST /api/land` → 輪詢直到 `is_armed == false`，逾時 180 s
   5. 印出起飛、降落耗時與最後 `GET /tasks/{id}` 的狀態；連跑 3 次
-- [ ] `docs/baseline.md`（append-only），第一段：drone 版本、狀態欄位、
+- [x] `docs/baseline.md`（append-only），第一段：drone 版本、狀態欄位、
       3 次起降耗時與中位數、容差（工作流程規則 7）
-- [ ] `README.md`：做什麼、怎麼啟動、**進度照實寫**（哪段驗證過、哪段還沒）
-- [ ] `CLAUDE.md`：agent／新 session 的單一入口——`uv sync`、啟動方式、
+- [x] `README.md`：做什麼、怎麼啟動、**進度照實寫**（哪段驗證過、哪段還沒）
+- [x] `CLAUDE.md`：agent／新 session 的單一入口——`uv sync`、啟動方式、
       測試（`uv run pytest`）、SITL 前置條件、PR 流程、指向「工作流程規則」
-- [ ] `.gitignore`（`.venv/`、`__pycache__/`、`.pytest_cache/`）、`LICENSE`，
+- [x] `scripts/smoke_health.sh`：起 `dev.sh`、打 `/health`、收掉、`pgrep` 無殘留（step-1 新增，
+      step-3 起後端時沿用同一套收尾）
+- [x] `tests/test_baseline_script.py` + `tests/fake_drone.py`：基線腳本的結束碼契約，
+      對假 drone 跑，不碰 SITL（step-1 新增，工作流程規則 8、10）
+- [x] `docs/step01.html` + `docs/index.html`：本 step 的教學章與全書目錄；
+      `scripts/check_book.py`（step-1 新增，之後每章都要過）
+- [x] `.gitignore`（`.venv/`、`__pycache__/`、`.pytest_cache/`）、`LICENSE`，
       以及與之一致的 `pyproject.toml` license 欄位
 
 **驗收**
@@ -226,6 +257,9 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
   - `telemetry_age_s = time.time() − update_time`（G2：`update_time` 是秒）
   - `flight_mode_name`：模組內寫死一份 ArduPlane 模式表，註解註明來源
     （pymavlink `mavutil.mode_mapping_apm`）；未知值給 `"MODE_<n>"`
+- [ ] **開工前先裁決 `httpx` vs `httpx2`**（step-1 發現）：Starlette 1.7 的 `TestClient`
+      對 `httpx` 發 `StarletteDeprecationWarning`，要求改裝 `httpx2`（pydantic 維護，2.13.1）。
+      確認 `httpx2` 有 `MockTransport` 與 `AsyncClient` 等價物，再決定是否換；決定寫回選型決策
 - [ ] 單元測試（MockTransport）：正常、單台逾時、未知模式、`update_time` 過期、
       多台其中一台壞掉
 
@@ -254,6 +288,7 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
       同樣的 `detail`**（選型決策 3）
 - [ ] 指令逾時：takeoff 要等 GUIDED + arm + NAV_TAKEOFF 全部完成才回應，可能要一陣子。
       轉發逾時先用 **30 s**，再把 drone 實際的回應時間記進 baseline.md 後調整
+      （step-1 實測：takeoff POST 3 次都是 **0.03 s**，從 GUIDED 與 QLAND 出發皆然）
 - [ ] 單元測試：成功透傳、409 透傳、504 透傳、422 透傳、連不上 → 502、未知 name → 404
 - [ ] `scripts/e2e_takeoff_land.sh <backend_url> <drone_name> <drone_url>`：
       **經由後端**下指令、**從 drone** 量測（工作流程規則 4）；流程與逾時同 step-1
@@ -261,6 +296,9 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 **驗收**
 - `uv run pytest` 通過
 - `scripts/e2e_takeoff_land.sh` 跑 3 次，起飛與降落耗時中位數落在 step-1 的容差內
+- ⚠ 下一條的前提在 step-1 被推翻：剛降落完（QLAND）`is_ready_to_arm=false`，但 takeoff
+  會先切 GUIDED 而**成功起飛**（選型決策 7）。step-3 開工時要另找一個 drone 會拒絕的情境
+  （409／504），再改寫這條驗收
 - `is_ready_to_arm=false` 時（例如剛降落完），takeoff 回的狀態碼與 `detail`
   和直接打 drone 的結果相同
 - 腳本結束後 `pgrep -f "uvicorn|e2e_takeoff_land"` 查無殘留（若腳本自己啟動了後端）
