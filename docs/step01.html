@@ -417,7 +417,7 @@ req() {
       （<code>SYS_STATUS</code> 的 <code>MAV_SYS_STATUS_PREARM_CHECK</code>，見 marlin-drone <code>drone/mavlink_telemetry_consumer.py</code>）。</li>
   <li>ArduPlane 4.6.3 的 pre-arm 會問「目前的模式能不能 arm」。<code>ModeQLand</code>、<code>ModeQRTL</code>、<code>ModeRTL</code>
       的 <code>_pre_arm_checks</code> 直接 <code>return false</code>（<code>ArduPlane/mode.h</code>），<code>ModeGuided</code> 是 <code>return true</code>。</li>
-  <li>而<b>我們自己的降落就停在 QLAND</b>。也就是說每一輪降落完，<code>is_ready_to_arm</code> 一定是 false。</li>
+  <li>而<b>我們自己的降落就停在 QLAND</b>。也就是說每一輪降落完，<code>is_ready_to_arm</code> 幾乎總是 false（剛 disarm 的一瞬間可能還讀到舊的 true，見〈對 SITL 跑基線〉的註記）。</li>
   <li>但 <code>POST /api/takeoff</code> 會先切 GUIDED 再 arm，所以照樣起飛：coordinator 的 log 裡，
       2026-09-24 06:06:13 剛 disarm，06:06:14 就 <code>ARM: ACCEPTED</code>。</li>
   <li>這也推翻了 ROADMAP step 3 的一條驗收：它原本打算拿「剛降落完、<code>is_ready_to_arm=false</code> 時按起飛」當 drone 會拒絕的例子。
@@ -450,7 +450,7 @@ req() {
   <line x1="662" y1="146" x2="691" y2="146" stroke="var(--c-coord)" stroke-width="2" marker-end="url(#m2c)"/>
   <text class="s-sm c-coord" x="678" y="100" text-anchor="middle">POST /api/land</text>
   <path d="M790,184 C790,262 115,262 115,188" fill="none" stroke="var(--c-fc)" stroke-width="2" marker-end="url(#m2f)"/>
-  <text class="s-sm c-fc" x="452" y="252" text-anchor="middle">disarm，停在 QLAND：下一輪一開始又是 false</text>
+  <text class="s-sm c-fc" x="452" y="252" text-anchor="middle">disarm，停在 QLAND：下一輪一開始通常又是 false</text>
   <path d="M115,108 C115,40 565,40 565,106" fill="none" stroke="var(--c-coord)" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#m2c)"/>
   <text class="s-sm c-coord" x="340" y="38" text-anchor="middle">直接 POST /api/takeoff 也飛得起來：它自己先切 GUIDED</text>
 </svg>
@@ -717,9 +717,9 @@ git switch step-1-skeleton</code></pre>
 <pre class="shell"><code>uv sync
 uv run pytest</code></pre>
 <pre><code><span class="dimline">-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html</span>
-======================== 9 passed, 1 warning in 10.86s =========================<span class="mk">1</span></code></pre>
+======================== 12 passed, 1 warning in 22.25s ========================<span class="mk">1</span></code></pre>
 <ol class="notes">
-  <li>9 條全過。那 1 個 warning 是 Starlette 1.7 對 <code>httpx</code> 的棄用提醒（要求改裝 <code>httpx2</code>），不是失敗；要不要換，排在 step 2 開工前決定。</li>
+  <li>12 條全過（其中 smoke 那條會真的起一次後端，所以要二十秒上下）。那 1 個 warning 是 Starlette 1.7 對 <code>httpx</code> 的棄用提醒（要求改裝 <code>httpx2</code>），不是失敗；要不要換，排在 step 2 開工前決定。</li>
 </ol>
 <pre class="shell"><code>scripts/smoke_health.sh</code></pre>
 <pre><code>GET /health -&gt; {"ok":true}<span class="mk">1</span></code></pre>
@@ -732,9 +732,9 @@ uv run pytest</code></pre>
 <pre class="shell"><code>sed 's/die "takeoff refused: HTTP $CODE $BODY"/die "takeoff refused: HTTP $CODE"/' scripts/baseline_drone_direct.sh &gt; /tmp/mut.sh
 BASELINE_SCRIPT=/tmp/mut.sh uv run pytest tests/test_baseline_script.py -q</code></pre>
 <pre><code>FAILED tests/test_baseline_script.py::test_refused_takeoff_prints_the_drones_detail<span class="mk">1</span>
-1 failed, 7 passed in 10.42s</code></pre>
+1 failed, 9 passed in 20.51s</code></pre>
 <ol class="notes">
-  <li>剛好是負責那個行為的測試變紅，其他 7 條照過。如果你看到 <code>8 passed</code>，代表 sed 沒有換到東西（例如腳本那一行已經改過），先 <code>diff scripts/baseline_drone_direct.sh /tmp/mut.sh</code> 確認副本真的不同。</li>
+  <li>剛好是負責那個行為的測試變紅，其他 9 條照過。如果你看到 <code>10 passed</code>，代表 sed 沒有換到東西（例如腳本那一行已經改過），先 <code>diff scripts/baseline_drone_direct.sh /tmp/mut.sh</code> 確認副本真的不同。</li>
 </ol>
 
 <h3 id="verify-sitl">對 SITL 跑基線（模擬機會真的起降）</h3>
@@ -783,8 +783,11 @@ MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
   <b>你跑出來的數字會不一樣，這是正常的。</b>SITL 不是決定性的，每次差個零點幾秒很常見；
   而且輪詢間隔是 0.5 s，每個數字本來就帶著約 ±0.5 s 的量化誤差。
   第一輪會不會出現 <code>switching to GUIDED</code>，取決於你開始時 drone 停在哪個模式。
-  只要中位數落在上面的容差範圍內，就和基線一致。撰寫本章時照上面的指令從全新 clone 重跑過一次（2026-09-25 20:12），
-  三輪都先切了 GUIDED，中位數是起飛 5.80 s、降落 24.01 s，都在容差內。如果看到 <code>PRECONDITION FAILED: is_armed=true</code>，
+  只要中位數落在上面的容差範圍內，就和基線一致。撰寫本章時照上面的指令從全新 clone 重跑過兩次：
+  2026-09-25 20:12 三輪都先切了 GUIDED，中位數起飛 5.80 s、降落 24.01 s；
+  22:38（code review 修正之後）中位數起飛 5.80 s、降落 23.49 s，而且<b>第 2 輪沒有切 GUIDED</b>——
+  那一刻 <code>is_ready_to_arm</code> 讀到的是 true。推測是剛 disarm 時這個旗標還停在飛行中的值（飛控大約每秒才更新一次），
+  這一點沒有實測驗證；無論哪一種，takeoff 都照樣會先切 GUIDED。兩次都在容差內。如果看到 <code>PRECONDITION FAILED: is_armed=true</code>，
   代表有東西正在飛這台 drone，腳本刻意不碰它。
 </div>
 <pre class="shell"><code>pgrep -af '^bash scripts/baseline_drone_direct' || echo none</code></pre>
@@ -837,7 +840,7 @@ MEDIAN takeoff_s=5.28 land_s=22.97<span class="mk">6</span></code></pre>
 <h2 id="pitfalls">常見錯誤</h2>
 <div class="pits">
   <div class="pit"><h4>把 <code>is_ready_to_arm=false</code> 當成「不能飛」</h4><dl>
-    <dt>症狀</dt><dd>剛降落完的 drone 永遠顯示 not ready。</dd>
+    <dt>症狀</dt><dd>剛降落完的 drone 幾乎總是顯示 not ready。</dd>
     <dt>後果</dt><dd>前置檢查擋掉一台其實能飛的飛機；或 UI 把起飛按鈕灰掉。</dd>
     <dt>正解</dt><dd class="fix">它是飛控的 pre-arm 位元，QLAND／QRTL／RTL 下必定 false。先切 GUIDED 再看。</dd></dl></div>
   <div class="pit"><h4>把 takeoff 的 200 當成「飛到了」</h4><dl>

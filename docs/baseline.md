@@ -69,7 +69,8 @@ show what normal variation looks like. Revisit after step 3 adds 3 more runs.
    in that state would be refused. *Actually:* it is ArduPlane's own pre-arm health bit,
    and `ModeQLand`, `ModeQRTL`, `ModeRTL` and `ModeInitializing` all return `false` from
    `_pre_arm_checks` (ArduPlane 4.6.3 `ArduPlane/mode.h`), shown as "mode not armable".
-   A land leaves the aircraft in QLAND, so after every one of our own landings it reads
+   A land leaves the aircraft in QLAND, so after our own landings it reads (almost always;
+   see the 22:38 rerun below for one exception)
    `false`. `POST /api/takeoff` switches to GUIDED before arming, so it still flies
    (coordinator log 2026-09-24 06:06:13 disarm → 06:06:14 `ARM: ACCEPTED`). After
    `POST /api/set-mode {"mode":"GUIDED"}` it read `true` within 1 s.
@@ -172,5 +173,21 @@ before fixing, and each fix has a test that was seen red first.
 **Tests:** 12 (was 9). The mutation self-check now has 11 mutations, all caught; the
 two new ones are "watch only once" and "threshold fixed at 9.5".
 
-**Not re-flown.** None of the fixes changes a successful run's timing path (the trap only
-runs on abort, and `ALT_REACHED` is still 9.5 for 10 m), so the step-1 medians stand.
+**Re-flown after the fixes** (fresh GitHub clone, reader commands as printed, 22:38):
+
+| Run | takeoff_s | land_s | start mode |
+|---|---|---|---|
+| 1 | 5.80 | 23.50 | QLAND (20) → set GUIDED |
+| 2 | 5.80 | 22.97 | **no switch**: `is_ready_to_arm` read true |
+| 3 | 5.80 | 23.49 | QLAND (20) → set GUIDED |
+| **Median** | **5.80** | **23.49** | |
+
+Inside the step-1 windows. Run 2 is new: right after a disarm, `is_ready_to_arm` read true
+once. The guess is that the flag still held its in-flight value (ArduPilot sets it healthy
+while armed, and the next SYS_STATUS had not arrived); **not verified**. The takeoff
+switches to GUIDED itself either way.
+
+**Abort on real SITL:** SIGINT at `alt_rel=1.03` (GUIDED, armed) → the trap sent
+`POST /api/land` at once (`LAND accepted (ACCEPTED)`), watched 15 s without re-sending
+(the aircraft was in QLAND), exited 130; drone-1 then disarmed at `alt_rel=-0.02`.
+No leftover process.

@@ -73,7 +73,8 @@ drone-N coordinator :7070  →  ArduPlane SITL
    若哪天後端反而成了負擔，砍掉的成本很低：前端的 fetch URL 改指 drone 位址即可。
 7. **起飛前置條件：先切 GUIDED，再要求 `is_ready_to_arm == true`。**（step-1 裁決）
    `is_ready_to_arm` 是飛控自己的 pre-arm 位元，ArduPlane 4.6.3 在 QLAND／QRTL／RTL 下
-   **一律是 false**（"mode not armable"），而我們自己的降落就停在 QLAND。考慮過的替代：
+   **一律是 false**（"mode not armable"），而我們自己的降落就停在 QLAND（剛 disarm 的一瞬間偶爾還讀到舊的 true，
+   見 `docs/baseline.md` step-1 code review 一節）。考慮過的替代：
    (a) 把這些模式視為可接受；(b) 不檢查、交給 takeoff 的 409。都沒採用——維持
    「前置條件不成立就大聲失敗」，改由 `POST /api/set-mode {"mode":"GUIDED"}` 先把飛機放進
    pre-arm 會通過的模式，實測 1 s 內變 true。已 arm 的飛機一律不碰（別人在飛）。
