@@ -117,7 +117,8 @@
 ## 工作流程規則（每個 Step 都適用）
 
 1. **一個 Step ＝ 一個 PR ＝ 一個 branch。** branch 名 `step-N-<短名>`，
-   PR 標題 `step-N: <一句話目標>`。
+   PR 標題 `step-N: <一句話目標>`。**PR 的標題與描述一律用繁體中文**；
+   `step-N:` 前綴、指令、程式碼、檔名、識別字與貼上的原始輸出保持原樣，不翻譯。
 2. **Definition of Done：**
    - 驗收證據貼在 PR 描述：指令輸出、數字、時間戳。
    - 在 `docs/baseline.md` 最後面追加本 step 的一段。

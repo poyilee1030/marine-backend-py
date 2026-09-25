@@ -43,6 +43,8 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 ## Workflow
 
 - One step = one branch `step-N-<short>` = one PR titled `step-N: <goal>`.
+- PR titles and descriptions are written in Traditional Chinese (workflow rule 1);
+  keep the `step-N:` prefix, commands, code, file names, identifiers and pasted output as is.
 - A step adds at most 800 lines of non-test code (workflow rule 11, which also gives the
   exact `git diff --numstat` counting commands); past that, split into `step-N-a`,
   `step-N-b`, … Put both numbers (code, tests+verification) in the PR description.
