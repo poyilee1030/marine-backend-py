@@ -4,28 +4,23 @@
 它站在瀏覽器（`marine-frontend`）和各 drone 容器的 coordinator HTTP API（:7070）之間。
 **不是**正式 GCS。
 
-## 專案目標（第一階段）
+## 階段總覽
 
-一條可驗收的鏈路，其他都不做：
+每個階段有自己的最終驗收；階段內拆成 step，**一個 step＝一個 PR**，編號全書連續
+（branch `step-N-<短名>`）。每個 step 的程式碼上限 800 行，超過就拆成 `step-N-a`、`step-N-b`…
+（工作流程規則 11）。表中的「程式碼」是預估，算法同規則 11；依據見各階段的「預估依據」。
 
-```
-瀏覽器 (marine-frontend)
-   │  GET /api/drones             ← 每 1 秒輪詢
-   │  POST /api/drones/{name}/takeoff | land
-   ▼
-marine-backend-py  :8100
-   │  GET  /get_drone_state        （每次請求當下去抓）
-   │  POST /api/takeoff | /api/land
-   ▼
-drone-N coordinator :7070  →  ArduPlane SITL
-```
+| 階段 | 目標 | Steps | 預估程式碼（不含測試） | 前置 | 里程碑 |
+|---|---|---|---|---|---|
+| **1** | 看得到 drone、讓它起飛、降落 | 1–3 | 41（step 1 實測）＋ 300–600 | 無 | M1、M2 |
+| **2** | 更多指令：RTL、改高度、goto；後端直接服務前端 | 4–6 | 150–320 | M2 | M3 |
+| **3** | 測試過程錄製：指令與狀態的時間軸 | 7–8 | 250–450 | M3 | M4 |
+| **4** | 多台、多人：指令權、推播、同時下指令 | 9–11 | 450–800 | M4 | M5 |
+| **5** | 實機：基線、認證、起飛二次確認 | 12–14 | 180–400 | M5＋實機與安全程序 | M6 |
 
-**第一階段最終驗收**：在前端對 drone-1 按「起飛」(10 m)，drone 自己的
-`GET /get_drone_state` 出現 `alt_rel ≥ 9.5` 且 `is_armed=true`；按「降落」後回到
-`alt_rel < 1` 且 `is_armed=false`。量測取自 drone，不取自本後端的回應。
-
-**第一階段不做**：goto、RTL、改高度、任務上傳、WebSocket 推播、資料庫、認證、實機。
-見文末「第一階段之後」。
+**只有第一階段是詳細規劃。** 第二階段起是粗規劃：範圍、step 切法、驗收的量法與預估行數都寫了，
+但**進入該階段前要重新審查一次**（照 step 1 的做法：先讀 drone 端當時的原始碼、實際打一次 API），
+審查結果回寫本檔再開工。drone 端的介面會變，現在寫死細節只會製造過期的規格。
 
 ---
 
@@ -114,7 +109,8 @@ drone-N coordinator :7070  →  ArduPlane SITL
 | G7 | `is_ready_to_arm=false` 時 takeoff 回 409/504。**規劃當下實讀 drone-1 就是 `is_ready_to_arm=false`**（mode QRTL）。**step-1 修正**：它隨模式而變，QLAND／QRTL／RTL 下必定 false，但 takeoff 會先切 GUIDED，所以照樣飛得起來（見選型決策 7） | 按了起飛沒反應；或反過來，把可以飛的飛機誤判成不能飛 | step-3：狀態碼與 `detail` 原樣轉發；step-1：基線腳本先切 GUIDED 再檢查前置條件，不滿足就大聲失敗；step-2：UI 不可把 `is_ready_to_arm=false` 直接顯示成「不能起飛」 |
 | G8 | 高度語意：`alt_rel` 是離 home 高度、`alt_asl` 是海拔；takeoff 的 `altitude` 是離 home 高度 | 混用會差一個 home 海拔 | 第一階段只用 `alt_rel` |
 | G9 | 若 marlin 的 gcs-server-v1／dashboard 也連著同一台 drone，兩個 GCS 都能下指令 | 兩邊的指令互相覆蓋 | 第一階段不處理；寫進工作流程規則 9「同一時間只有一個 GCS 下指令」 |
-| G10 | 實機上 Jetson 的時鐘可能和主機不同 | `telemetry_age_s` 算錯 | SITL 不會發生（容器與主機共用時鐘）；實機進來時再處理 |
+| G10 | 實機上 Jetson 的時鐘可能和主機不同 | `telemetry_age_s` 算錯 | **設計上消除**（重審第一階段時）：step-2 改用 `timestamp/1000 − update_time`，兩者都是 coordinator 行程自己的 `time.time()`（`mavlink_telemetry_consumer.py:683`、`drone_api_server.py:587`），不碰主機時鐘。第五階段只需在實機上驗證一次 |
+| G11 | **goto 的 body 用 `lon`，狀態回應用 `lng`**（`GotoTaskRequest.lon` vs `/get_drone_state` 的 `lng`） | 前端把狀態的欄位名直接拿去下 goto → drone 回 422（`extra="forbid"`） | step-5：本後端對外一律用 `lng`，轉發時改名為 `lon`，測試釘住這個對應 |
 
 ---
 
@@ -139,8 +135,9 @@ drone-N coordinator :7070  →  ArduPlane SITL
 5. **測試編排腳本進 repo**（`scripts/`），不寫拋棄式指令。每個 step 都重跑同一套腳本
    對照基線；踩到的坑若屬腳本缺陷，修進腳本本體。
 6. **腳本自我終結。** `set -euo pipefail`；每個等待都有 `timeout`，用 `trap` 清理；
-   背景程序以 `setsid` 起跑、以 `kill -- -$PGID` 收掉；退出前用 `pgrep -f uvicorn`
-   確認沒有殘留，才准 exit 0。
+   背景程序以 `setsid` 起跑、以 `kill -- -$PGID` 收掉；退出前確認沒有殘留，才准 exit 0。
+   殘留檢查**不要用裸的 `pgrep -f <樣式>`**（會比對到下指令的那個 shell 自己，step-1 踩坑）：
+   比對行程名稱（`pgrep -ax uvicorn` 再過濾參數），或把樣式錨定在開頭（`^bash scripts/…`）。
 7. **基線對照方法：** SITL 非決定性。起飛時間（派發 → `alt_rel ≥ 9.5`）與降落時間
    （派發 → `is_armed=false`）各跑 3 次取中位數；落在**基線中位數 ±30% 與 ±5 s 取較寬者**
    之外才算回歸。step-1 有實際數據後再收緊容差。`docs/baseline.md` 的舊數字永遠不改。
@@ -154,6 +151,23 @@ drone-N coordinator :7070  →  ArduPlane SITL
     （容差、逾時），先把性質寫成測試，常數留待實測後填入——仍然先紅後綠。
     測試要從**對方的規格或原始碼**長出來（例如 drone 的 `drone_api_server.py`），
     不照自己的實作抄，否則會抄到同一個漏洞。沒紅過的測試不算數。
+11. **一個 step 的程式碼不超過 800 行（不含測試）。** 超過就拆成 `step-N-a`、`step-N-b`、`step-N-c`…
+    各自一個 branch、一個 PR、一章教材（`docs/stepNNa.html`），每一片都要能單獨驗收。
+    有非常強烈的理由可以不拆，但理由要寫進該 step 的「內容」一節並在 PR 描述裡重述。
+    - **計入**：`marine_backend/`、`scripts/` 裡的非驗證腳本（如 `dev.sh`）、設定檔
+      （`pyproject.toml`、`drones.toml`）的**新增行**。
+    - **不計**：`tests/`；驗證腳本（規則 5 的「測試編排腳本」，檔名以 `baseline_`、`e2e_`、
+      `smoke_`、`check_` 開頭）；`docs/`；`*.md`；`uv.lock`；`LICENSE`。
+    - 量法（PR 描述要貼**兩個數字**；驗證那一側不設上限，但要讓 reviewer 看得到份量）：
+      ```bash
+      git diff --numstat main...HEAD -- marine_backend scripts pyproject.toml drones.toml \
+        ':!scripts/baseline_*' ':!scripts/e2e_*' ':!scripts/smoke_*' ':!scripts/check_*' \
+        | awk '{s+=$1} END {print "code:", s+0}'
+      git diff --numstat main...HEAD -- tests 'scripts/baseline_*' 'scripts/e2e_*' 'scripts/smoke_*' 'scripts/check_*' \
+        | awk '{s+=$1} END {print "tests+verification:", s+0}'
+      ```
+    - 預估在規劃時做（見「階段總覽」），實際數字在開 PR 前量；**實作途中一旦逼近 800 就停下來先拆**，
+      不要做完才發現。step 1 的實測：code 41、tests+verification 823。
 
 **SITL 環境（e2e 腳本的前置條件）：**
 
@@ -165,15 +179,45 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 
 ---
 
-## Step 總覽
+# 第一階段 — 看得到 drone、讓它起飛、降落
 
-| Step | 內容 | 機器 | 預估 | 前置 | 前端對應 |
-|---|---|---|---|---|---|
-| 1 | 骨架 + drone API 基線 | 主機 + drone-1 SITL | 0.5–1 天 | 無 | 可與前端 step-1 並行 |
-| 2 | `GET /api/drones`：drone 清單 + 即時狀態 | 主機（單元測試）、SITL（煙霧測試） | 1 天 | 1 | 前端 step-2 依賴它 |
-| 3 | takeoff / land / task 轉發 | 主機 + SITL | 1 天 | 2 | 前端 step-3 依賴它 |
+一條可驗收的鏈路，其他都不做：
 
-預估以熟悉 FastAPI 為前提。step-1 會第一次實際碰到 SITL 的前置條件（G7），所以給一個範圍。
+```
+瀏覽器 (marine-frontend)
+   │  GET /api/drones             ← 每 1 秒輪詢
+   │  POST /api/drones/{name}/takeoff | land
+   ▼
+marine-backend-py  :8100
+   │  GET  /get_drone_state        （每次請求當下去抓）
+   │  POST /api/takeoff | /api/land
+   ▼
+drone-N coordinator :7070  →  ArduPlane SITL
+```
+
+**第一階段最終驗收**：在前端對 drone-1 按「起飛」(10 m)，drone 自己的
+`GET /get_drone_state` 出現 `alt_rel ≥ 9.5` 且 `is_armed=true`；按「降落」後回到
+`alt_rel < 1` 且 `is_armed=false`。量測取自 drone，不取自本後端的回應。
+
+**第一階段不做**：goto、RTL、改高度、任務上傳、WebSocket 推播、資料庫、認證、實機。
+之後的階段見「階段總覽」與第二階段起各節。
+
+---
+
+**Steps**
+
+| Step | 內容 | 機器 | 預估時間 | 程式碼（不含測試） | 前置 | 前端對應 |
+|---|---|---|---|---|---|---|
+| 1 | 骨架 + drone API 基線 | 主機 + drone-1 SITL | 0.5–1 天 | **41（實測）**；驗證側 823 | 無 | 可與前端 step-1 並行 |
+| 2 | `GET /api/drones`：drone 清單 + 即時狀態 | 主機（單元測試）、SITL（煙霧測試） | 1 天 | 150–300 | 1 | 前端 step-2 依賴它 |
+| 3 | takeoff / land / task 轉發 | 主機 + SITL | 1 天 | 150–300 | 2 | 前端 step-3 依賴它 |
+
+預估時間以熟悉 FastAPI 為前提。
+
+**預估依據（行數）**：step 2＝設定檔載入（~30）＋ ArduPlane 模式表（~30 項，~40 行）＋
+回應模型與 `/api/drones`（~80–150）＋ app 組裝（~20）。step 3＝三個轉發路由（各 ~20–30）＋
+共用轉發與錯誤映射（~60–100）＋ 請求模型（~20）。兩步都遠低於 800，**不需要拆**。
+驗證側另計：step 3 的 `e2e_takeoff_land.sh` 預估 ~200 行（對照 step 1 的 `baseline_drone_direct.sh` 182 行）。
 
 ```
 後端 : B1 ──► B2 ──► B3 ─────────────┐
@@ -254,7 +298,9 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
   ```
   - drone 連不上或逾時：`online=false`、`error="<原因>"`、其他欄位 `null`；
     **不讓整個請求失敗**
-  - `telemetry_age_s = time.time() − update_time`（G2：`update_time` 是秒）
+  - `telemetry_age_s = timestamp / 1000 − update_time`（G2：`update_time` 是秒、`timestamp` 是毫秒）。
+    **兩個都取自同一個 drone 回應**，都是 coordinator 行程的時鐘，所以與主機時鐘無關（G10）。
+    精度受 `update_time` 取整到秒所限（最多約 1 s 偏大），與用主機時鐘時相同
   - `flight_mode_name`：模組內寫死一份 ArduPlane 模式表，註解註明來源
     （pymavlink `mavutil.mode_mapping_apm`）；未知值給 `"MODE_<n>"`
 - [ ] **開工前先裁決 `httpx` vs `httpx2`**（step-1 發現）：Starlette 1.7 的 `TestClient`
@@ -301,11 +347,12 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
   （409／504），再改寫這條驗收
 - `is_ready_to_arm=false` 時（例如剛降落完），takeoff 回的狀態碼與 `detail`
   和直接打 drone 的結果相同
-- 腳本結束後 `pgrep -f "uvicorn|e2e_takeoff_land"` 查無殘留（若腳本自己啟動了後端）
+- 腳本結束後查無殘留（若腳本自己啟動了後端）：`pgrep -af '^bash scripts/e2e_takeoff_land'`，
+  以及 `scripts/smoke_health.sh` 的 `leftovers()` 那種比對法（規則 6）
 
 ---
 
-## 里程碑
+## 第一階段里程碑
 
 | 里程碑 | 條件 |
 |---|---|
@@ -314,10 +361,129 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 
 ---
 
-## 第一階段之後（尚未規劃，只列出來免得忘記）
+# 第二階段 — 更多指令：RTL、改高度、goto；後端直接服務前端
 
-- RTL、改高度、goto（點地圖）
-- 對前端的 WebSocket 推播（等輪詢不夠用了再說）
-- 測試過程錄製（指令與狀態的時間軸，配合 drone 端除錯）
-- 多台 drone、多人同時操作（G9）
-- 實機：時鐘（G10）、認證、起飛二次確認
+**目標：** 手動測試常用的其他三個指令都能從瀏覽器下，而且和起降一樣「量 drone、不量回應」。
+前端不再需要自己的 dev server。
+
+**最終驗收（量測取自 drone 的 `/get_drone_state`）：** 在前端對 drone-1：
+- 飛到 10 m 後按「改高度 20 m」→ `alt_rel` 進入 20 ± 0.5；
+- 按「goto」（點地圖上距起飛點約 50 m 的一點，高度 15 m）→ 目標點與 drone `lat`/`lng`
+  的水平距離 < 5 m；
+- 按「RTL」→ `dist_to_home` < 5 m 且最後 `is_armed=false`。
+
+**不做：** 任務上傳（`/api/upload-mission`）、AUTO 模式、`/api/arm`／`disarm`／`set-mode` 的轉發
+（測試用 UI 不需要手動 arm；需要時再開 step）。
+
+**預估依據：** step 3 會做出共用的「轉發一個 drone 指令」函式，本階段每個指令只是一個路由加一個
+請求模型（各 ~20–40 行）。驗證側每個指令一段 e2e（~100–200 行）。
+
+| Step | 內容 | 程式碼（不含測試） | 前置 | 前端對應 |
+|---|---|---|---|---|
+| 4 | RTL、改高度轉發 | 60–120 | M2 | 前端「RTL／改高度按鈕」 |
+| 5 | goto 轉發（`lng` → `lon`，G11） | 60–120 | 4 | 前端「點地圖 goto」 |
+| 6 | 後端直接服務前端的打包檔 | 30–80 | 3 | 前端「打包成靜態檔由後端直接服務」 |
+
+## Step 4 — RTL、改高度轉發
+- `POST /api/drones/{name}/rtl`（body `{}`）→ `POST {url}/api/rtl`
+- `POST /api/drones/{name}/change-alt` `{"altitude": <alt_rel 公尺>}` → `POST {url}/api/change-alt`。
+  drone 端的 `altitude` 就是 `alt_rel` 基準（G8），不換算
+- 錯誤映射沿用 step 3（選型決策 3）
+- 開工前重審：RTL 在 quadplane 上實際走 QRTL（`Q_RTL_MODE`），要實測它著地後會不會自動 disarm，
+  再決定驗收寫 `is_armed=false` 還是只寫 `dist_to_home`
+- `scripts/e2e_commands.sh`：經由後端下指令、從 drone 量測；每個指令記錄耗時，3 次取中位數進 baseline
+
+## Step 5 — goto 轉發
+- `POST /api/drones/{name}/goto` `{"lat", "lng", "altitude", "yaw"?}` → `POST {url}/api/goto`
+  `{"lat", "lon", "altitude", "yaw"?}`（G11：對外一律 `lng`）
+- drone 的 goto 是子程序、可被新任務取代（`superseded` 不是失敗）；驗收要包含「goto 途中按降落」
+- e2e：以 haversine 從 drone 的 `lat`/`lng` 算到目標的距離
+
+## Step 6 — 後端直接服務前端
+- `StaticFiles` 掛載 marine-frontend 的 `dist/`（路徑由設定檔給，不寫死）；`/api/*` 優先
+- 驗收：`npm run build` 後只起本後端，瀏覽器開 `http://localhost:8100/` 完成第一階段的最終驗收
+
+**里程碑 M3：** 第二階段最終驗收通過（前端對應的 step 也合併）。
+
+---
+
+# 第三階段 — 測試過程錄製
+
+**目標：** 每一次手動測試留下一條時間軸：誰在什麼時候下了什麼指令、drone 回了什麼、之後狀態怎麼變。
+事後能拿 `task_id` 對照 drone 端的 `logs/task_logs/task_<id>.log`。
+
+**最終驗收：** 做一次「起飛 → 改高度 → 降落」，錄製檔裡依時間順序有三筆指令（含 drone 的 `task_id`、
+狀態碼、`detail`）和期間的狀態取樣；取樣裡的 `alt_rel` 與 `docs/baseline.md` 的耗時對得上
+（容差同規則 7）。
+
+**設計方向（進入本階段時裁決）：** 錄成 JSONL 檔（一行一筆），不引進資料庫（維持選型決策 2）；
+狀態取樣搭 `GET /api/drones` 的便車記錄，不開背景輪詢（維持選型決策 1）——代表沒人開頁面時不會有取樣，
+這個取捨要在該 step 的章裡講清楚。
+
+**預估依據：** 寫入端是在既有的轉發與 `/api/drones` 各加一個 hook（~40–80）＋ 檔案輪替與 schema（~80–120）；
+讀取端是兩個唯讀路由加過濾（~100–200）。
+
+| Step | 內容 | 程式碼（不含測試） | 前置 |
+|---|---|---|---|
+| 7 | 錄製：指令、回應、狀態取樣寫進 `recordings/<session>.jsonl` | 150–250 | M3 |
+| 8 | 讀取：`GET /api/recordings`、`GET /api/recordings/{id}`，可依 drone 與 `task_id` 過濾 | 100–200 | 7 |
+
+**里程碑 M4：** 第三階段最終驗收通過。
+
+---
+
+# 第四階段 — 多台、多人
+
+**目標：** 同時開幾台 SITL drone、幾個人各開一個頁面，也不會互相踩指令（G9）。
+
+**最終驗收：** 3 台 SITL drone（`create_dockers.sh 3`）、2 個瀏覽器分頁：
+- 分頁 A 取得 drone-1 的指令權後，分頁 B 對 drone-1 下指令收到 409，`detail` 說明是誰持有；
+- A 釋放或逾時後 B 可以下指令；
+- 一次對 3 台下「起飛」，每台各自的結果（含部分失敗）分開回報，量測仍取自各台 drone。
+
+**翻案檢查：** 選型決策 1（不開背景輪詢）的翻案條件是「drone 超過約 10 台，或多人同時開頁面」。
+本階段正好碰到後者，所以 step 10 前要**先量**：2 個分頁、3 台 drone 時 `GET /api/drones` 的負載與延遲，
+量出來真的不夠才做推播，否則 step 10 取消並記錄理由。
+
+**預估依據：** 指令權是一張記憶體內的表加逾時（~150–250）；推播是一個共用的抓取迴圈加 WebSocket 廣播
+（~200–350）；群體指令是對 step 3 轉發的 `gather` 包裝（~100–200）。
+**step 10 是全書最接近 800 的一步**；若實作逼近上限，預先想好的拆法是
+`step-10-a`（共用抓取迴圈，`/api/drones` 改讀快取）與 `step-10-b`（WebSocket 廣播）。
+
+| Step | 內容 | 程式碼（不含測試） | 前置 |
+|---|---|---|---|
+| 9 | 指令權：`claim`／`release`、逾時、非持有者下指令 → 409 | 150–250 | M4 |
+| 10 | 對前端推播（條件觸發，見上） | 200–350 | 9 |
+| 11 | 一次對多台下指令，逐台回報 | 100–200 | 9 |
+
+**里程碑 M5：** 第四階段最終驗收通過。
+
+---
+
+# 第五階段 — 實機
+
+**前置：** 有實機、有安全程序（誰是安全飛手、在哪裡飛、怎麼緊急中止）。**沒有這些就不開始本階段。**
+進入前的重審要比其他階段更嚴：實機上的 coordinator 版本、網路位址、Jetson 上的時鐘，都要重新實測。
+
+**目標：** 同一套後端能安全地接實機。
+
+**最終驗收：** 在安全飛手在場的前提下，對一台實機完成第一階段的起飛（低高度）與降落，
+量測取自實機的 `/get_drone_state`；未認證的指令請求一律被拒；起飛必須經過二次確認。
+
+**預估依據：** 基線是既有腳本加唯讀模式（程式碼 ~0–50）；認證是一個依賴注入的 token 檢查（~100–200）；
+二次確認是兩段式請求（~80–150）。
+
+| Step | 內容 | 程式碼（不含測試） | 前置 |
+|---|---|---|---|
+| 12 | 實機基線：`baseline_drone_direct.sh` 加唯讀模式（不起飛），量欄位、單位、驗證 G10 的設計在實機上成立 | 0–50 | M5 |
+| 13 | 認證：下指令的路由需要 token；讀取路由的開放程度在本 step 裁決 | 100–200 | 12 |
+| 14 | 起飛二次確認：第一次請求回一個短效確認碼，帶著它的第二次請求才轉發 | 80–150 | 13 |
+
+**里程碑 M6：** 第五階段最終驗收通過。
+
+---
+
+## 目前不在任何階段的想法
+
+- `/api/arm`、`/api/disarm`、`/api/set-mode`、任務上傳的轉發：測試用 UI 目前不需要；有具體的測試情境再開 step。
+- 飛行紀錄的回放（在地圖上重播）：前端的事，本後端只要第三階段的讀取 API 就夠。

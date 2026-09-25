@@ -43,6 +43,11 @@ curl -s http://172.18.10.2:7070/version                         # {"version":"1.
 ## Workflow
 
 - One step = one branch `step-N-<short>` = one PR titled `step-N: <goal>`.
+- A step adds at most 800 lines of non-test code (workflow rule 11, which also gives the
+  exact `git diff --numstat` counting commands); past that, split into `step-N-a`,
+  `step-N-b`, … Put both numbers (code, tests+verification) in the PR description.
+- ROADMAP is organised by phase. Only phase 1 is planned in detail; re-review a phase
+  against the drone's current source before starting it.
 - Tests first (workflow rule 10): watch every test fail for the right reason before
   writing the code. Script contracts are tested against `tests/fake_drone.py`.
 - Measure on the drone, not on this backend's responses (workflow rule 4).
