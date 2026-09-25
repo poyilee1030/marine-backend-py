@@ -137,8 +137,10 @@
    對照基線；踩到的坑若屬腳本缺陷，修進腳本本體。
 6. **腳本自我終結。** `set -euo pipefail`；每個等待都有 `timeout`，用 `trap` 清理；
    背景程序以 `setsid` 起跑、以 `kill -- -$PGID` 收掉；退出前確認沒有殘留，才准 exit 0。
-   殘留檢查**不要用裸的 `pgrep -f <樣式>`**（會比對到下指令的那個 shell 自己，step-1 踩坑）：
-   比對行程名稱（`pgrep -ax uvicorn` 再過濾參數），或把樣式錨定在開頭（`^bash scripts/…`）。
+   殘留檢查**不要靠命令列長什麼樣**：裸的 `pgrep -f <樣式>` 會比對到下指令的那個 shell 自己，
+   而比對命令列會漏掉 uvicorn `--reload` 真正佔著 port 的子行程（兩個都是 step-1 踩的坑）。
+   看事實：process group 裡還有沒有行程（`pgrep -g $PGID`）、port 還有沒有人 listen（`ss`），
+   照 `scripts/smoke_health.sh` 的 `leftovers()`；只能用命令列時，把樣式錨定在開頭（`^bash scripts/…`）。
 7. **基線對照方法：** SITL 非決定性。起飛時間（派發 → `alt_rel ≥ 9.5`）與降落時間
    （派發 → `is_armed=false`）各跑 3 次取中位數；落在**基線中位數 ±30% 與 ±5 s 取較寬者**
    之外才算回歸。step-1 有實際數據後再收緊容差。`docs/baseline.md` 的舊數字永遠不改。
